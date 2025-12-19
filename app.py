@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import time
-import math
 
 # =============================
 # PAGE CONFIG
@@ -101,42 +100,44 @@ def get_stock_universe(markets):
     return stocks
 
 # =============================
-# FETCH STOCK DATA
+# FETCH STOCK DATA (SAFE)
 # =============================
 @st.cache_data(ttl=1800)
 def fetch_stock(symbol):
-    try:
-        t = yf.Ticker(symbol)
-        info = t.info
-        hist = t.history(period="1y")
+    t = yf.Ticker(symbol)
 
-        if hist.empty:
-            return None
-
-        price = hist["Close"].iloc[-1]
-
-        def pct_change(days):
-            if len(hist) > days:
-                return (price - hist["Close"].iloc[-days]) / hist["Close"].iloc[-days] * 100
-            return None
-
-        return {
-            "Ticker": symbol,
-            "Name": info.get("longName", symbol),
-            "Sector": info.get("sector"),
-            "Price": price,
-            "Volume": info.get("averageVolume"),
-            "MarketCap": info.get("marketCap"),
-            "PE": info.get("trailingPE"),
-            "Week": pct_change(5),
-            "Month": pct_change(21),
-            "Year": pct_change(252),
-        }
-    except:
+    # Reliable price source
+    hist = t.history(period="1y", auto_adjust=False)
+    if hist is None or hist.empty:
         return None
 
+    price = float(hist["Close"].iloc[-1])
+
+    def pct_change(days):
+        if len(hist) > days:
+            return (price - hist["Close"].iloc[-days]) / hist["Close"].iloc[-days] * 100
+        return None
+
+    # fast_info is safer than .info
+    try:
+        info = t.fast_info
+    except:
+        info = {}
+
+    return {
+        "Ticker": symbol,
+        "Sector": info.get("sector"),
+        "Price": price,
+        "Volume": info.get("averageVolume"),
+        "MarketCap": info.get("marketCap"),
+        "PE": info.get("trailingPE"),
+        "Week": pct_change(5),
+        "Month": pct_change(21),
+        "Year": pct_change(252),
+    }
+
 # =============================
-# FILTER LOGIC (SAFE)
+# FILTER LOGIC
 # =============================
 def passes_filters(s):
     if s is None:
@@ -150,7 +151,7 @@ def passes_filters(s):
     if s["Volume"] and s["Volume"] < min_volume:
         return False
 
-    # Market cap
+    # Market Cap
     mc = s["MarketCap"]
     if mc:
         if market_cap == "Mega" and mc < 200e9: return False
@@ -159,11 +160,11 @@ def passes_filters(s):
         if market_cap == "Small" and not (300e6 <= mc < 2e9): return False
         if market_cap == "Micro" and mc >= 300e6: return False
 
-    # PE
+    # P/E
     if s["PE"] and s["PE"] > pe_max:
         return False
 
-    # Sector (mapped correctly)
+    # Sector
     if "Any" not in sector_filter:
         sector_map = {
             "Technology": ["Technology"],
