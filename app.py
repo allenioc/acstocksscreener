@@ -19,8 +19,8 @@ st.set_page_config(
 st.markdown("""
 <div style="background: linear-gradient(135deg,#667eea,#764ba2);
 padding:2rem;border-radius:12px;margin-bottom:1.5rem;color:white;text-align:center;">
-<h1>📈 AC Stocks Screener</h1>
-<p>Finviz-Style Stock Screener (US & Canada)</p>
+<h1>📈 Stock Screener</h1>
+<p>Professional Stock Screening for US & Canadian Markets</p>
 </div>
 """, unsafe_allow_html=True)
 
