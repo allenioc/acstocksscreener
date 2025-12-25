@@ -8,26 +8,26 @@ A modern, professional stock screening platform inspired by Finviz, covering bot
 
 ---
 
-## 🌟 Features
+##  Features
 
-### 📊 Comprehensive Screening
+###  Comprehensive Screening
 - **Market Cap Filters**: From micro-cap to mega-cap stocks
 - **Price Ranges**: Custom minimum and maximum price filters
 - **Volume Filters**: Screen by average trading volume
 - **Performance Tracking**: Week, month, quarter, half-year, and annual returns
 
-### 💰 Fundamental Analysis
+###  Fundamental Analysis
 - **Valuation Metrics**: P/E, P/S, P/B, PEG ratios
 - **Profitability**: Profit margins, ROE, ROA
 - **Financial Health**: Debt-to-equity, current ratio
 - **Dividends**: Yield and payout information
 
-### 🌎 Multi-Market Coverage
+###  Multi-Market Coverage
 - **80+ US Stocks**: Major companies across all sectors
 - **45+ Canadian Stocks**: TSX-listed companies
 - **10+ Sectors**: Technology, Healthcare, Finance, Consumer, Industrial, Energy, Materials, Utilities, Real Estate, and more
 
-### 🎨 Modern, Clean UI
+###  Modern, Clean UI
 - Gradient header design
 - Professional color scheme (purple/blue theme)
 - Responsive table layout
@@ -36,7 +36,7 @@ A modern, professional stock screening platform inspired by Finviz, covering bot
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Local Deployment
 
@@ -129,7 +129,7 @@ Download results as CSV for further analysis.
 
 ---
 
-## 📊 Available Metrics
+##  Available Metrics
 
 | Metric | Description |
 |--------|-------------|
@@ -146,7 +146,7 @@ Download results as CSV for further analysis.
 
 ---
 
-## 🎯 Use Cases
+##  Use Cases
 
 ### For Long-Term Investors
 - Find undervalued stocks with strong fundamentals
@@ -170,7 +170,7 @@ Download results as CSV for further analysis.
 
 ---
 
-## 🛠️ Technical Details
+##  Technical Details
 
 ### Built With
 - **Python 3.8+**
@@ -221,7 +221,7 @@ Modify the CSS in the `st.markdown()` section at the top of `app.py`:
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Issue: No stocks showing
 **Solution:** Lower your filter criteria. Try setting:
@@ -244,7 +244,7 @@ Modify the CSS in the `st.markdown()` section at the top of `app.py`:
 
 ---
 
-## 📝 Limitations
+##  Limitations
 
 1. **Data Accuracy**: Relies on Yahoo Finance API
 2. **Real-time Data**: 15-minute delay on free tier
@@ -253,7 +253,7 @@ Modify the CSS in the `st.markdown()` section at the top of `app.py`:
 
 ---
 
-## 🔒 Disclaimer
+##  Disclaimer
 
 **Important:** This tool is for informational and educational purposes only.
 
@@ -265,13 +265,13 @@ Modify the CSS in the `st.markdown()` section at the top of `app.py`:
 
 ---
 
-## 📄 License
+##  License
 
 MIT License - feel free to use and modify for your own projects.
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions welcome! Feel free to:
 - Report bugs
