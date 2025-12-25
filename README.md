@@ -1,8 +1,8 @@
-# Finviz-Style Stock Screener 📈
+# Stock Screener 
 
 An enhanced stock screener built with Streamlit, inspired by Finviz's powerful screening capabilities.
 
-## ✨ Enhanced Features
+##  Enhanced Features
 
 ### New Additions vs Original:
 
