@@ -475,57 +475,71 @@ def passes_filters(s):
         return False
     
     # Price filter
-    if not (price_min <= s["Price"] <= price_max):
+    if not (price_min <= s.get("Price", 0) <= price_max):
         return False
     
-    # Volume filter
-    if s["Volume"] and s["Volume"] < min_volume:
+    # Volume filter - only filter if volume data exists
+    volume = s.get("Volume")
+    if volume is not None and volume > 0 and volume < min_volume:
         return False
     
-    # Market cap filter
-    mc = s["MarketCap"]
-    if mc:
-        if market_cap == "Mega (>$200B)" and mc < 200e9: return False
-        if market_cap == "Large ($10B-$200B)" and not (10e9 <= mc < 200e9): return False
-        if market_cap == "Mid ($2B-$10B)" and not (2e9 <= mc < 10e9): return False
-        if market_cap == "Small ($300M-$2B)" and not (300e6 <= mc < 2e9): return False
-        if market_cap == "Micro (<$300M)" and mc >= 300e6: return False
+    # Market cap filter - only apply if "Any" is not selected and market cap exists
+    mc = s.get("MarketCap")
+    if market_cap != "Any" and mc is not None:
+        if market_cap == "Mega (>$200B)" and mc < 200e9: 
+            return False
+        if market_cap == "Large ($10B-$200B)" and not (10e9 <= mc < 200e9): 
+            return False
+        if market_cap == "Mid ($2B-$10B)" and not (2e9 <= mc < 10e9): 
+            return False
+        if market_cap == "Small ($300M-$2B)" and not (300e6 <= mc < 2e9): 
+            return False
+        if market_cap == "Micro (<$300M)" and mc >= 300e6: 
+            return False
     
-    # P/E filter
-    if s.get("PE"):
-        if s["PE"] < pe_min or s["PE"] > pe_max:
+    # P/E filter - only apply if data exists (including 0)
+    pe = s.get("PE")
+    if pe is not None:
+        if pe < pe_min or pe > pe_max:
             return False
     
     # P/B filter
-    if s.get("PB"):
-        if s["PB"] < pb_min or s["PB"] > pb_max:
+    pb = s.get("PB")
+    if pb is not None:
+        if pb < pb_min or pb > pb_max:
             return False
     
     # P/S filter
-    if s.get("PS"):
-        if s["PS"] < ps_min or s["PS"] > ps_max:
+    ps = s.get("PS")
+    if ps is not None:
+        if ps < ps_min or ps > ps_max:
             return False
     
     # EV/EBITDA filter
-    if s.get("EV_EBITDA"):
-        if s["EV_EBITDA"] < ev_ebitda_min or s["EV_EBITDA"] > ev_ebitda_max:
+    ev_ebitda = s.get("EV_EBITDA")
+    if ev_ebitda is not None:
+        if ev_ebitda < ev_ebitda_min or ev_ebitda > ev_ebitda_max:
             return False
     
-    # Dividend yield
-    if s.get("DividendYield", 0) < min_dividend:
+    # Dividend yield - always has a value (defaults to 0)
+    div_yield = s.get("DividendYield", 0)
+    if div_yield < min_dividend:
         return False
     
     # Beta filter
-    if s.get("Beta"):
-        if s["Beta"] < beta_min or s["Beta"] > beta_max:
+    beta = s.get("Beta")
+    if beta is not None:
+        if beta < beta_min or beta > beta_max:
             return False
     
-    # EPS growth filter
-    if s.get("EPSGrowth") is not None and s["EPSGrowth"] < eps_growth_min:
+    # EPS growth filter - only filter if data exists
+    eps_growth = s.get("EPSGrowth")
+    if eps_growth is not None and eps_growth < eps_growth_min:
         return False
     
-    # Revenue growth filter
-    if s.get("RevenueGrowth") is not None and s["RevenueGrowth"] < revenue_growth_min:
+    # Revenue growth filter - only filter if data exists
+    revenue_growth = s.get("RevenueGrowth")
+    if revenue_growth is not None and revenue_growth < revenue_growth_min:
         return False
     
     # Performance filter
@@ -542,30 +556,42 @@ def passes_filters(s):
             if val < perf_min or val > perf_max:
                 return False
     
-    # RSI filter
-    if s.get("RSI"):
-        if s["RSI"] < rsi_min or s["RSI"] > rsi_max:
+    # RSI filter - only apply if data exists
+    rsi = s.get("RSI")
+    if rsi is not None:
+        if rsi < rsi_min or rsi > rsi_max:
             return False
     
-    # SMA filters
-    if above_sma20 and (s.get("SMA20") is None or s["Price"] < s["SMA20"]):
-        return False
-    if above_sma50 and (s.get("SMA50") is None or s["Price"] < s["SMA50"]):
-        return False
-    if above_sma200 and (s.get("SMA200") is None or s["Price"] < s["SMA200"]):
-        return False
+    # SMA filters - only check if checkbox is enabled
+    if above_sma20:
+        sma20 = s.get("SMA20")
+        if sma20 is None or s["Price"] < sma20:
+            return False
+    if above_sma50:
+        sma50 = s.get("SMA50")
+        if sma50 is None or s["Price"] < sma50:
+            return False
+    if above_sma200:
+        sma200 = s.get("SMA200")
+        if sma200 is None or s["Price"] < sma200:
+            return False
     
-    # MACD filter
-    if macd_bullish and not s.get("MACD_Bullish", False):
-        return False
+    # MACD filter - only check if checkbox is enabled
+    if macd_bullish:
+        if not s.get("MACD_Bullish", False):
+            return False
     
-    # Bollinger Band filter
-    if bb_position != "Any" and s.get("BB_Position") != bb_position:
-        return False
+    # Bollinger Band filter - only apply if not "Any"
+    if bb_position != "Any":
+        bb_pos = s.get("BB_Position")
+        if bb_pos is not None and bb_pos != bb_position:
+            return False
     
-    # Sector filter
-    if "Any" not in sector_filter and s.get("Sector") not in sector_filter:
-        return False
+    # Sector filter - only apply if "Any" is not in the selection
+    if "Any" not in sector_filter:
+        sector = s.get("Sector")
+        if sector is None or sector not in sector_filter:
+            return False
     
     return True
 
