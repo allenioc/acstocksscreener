@@ -110,7 +110,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Fundamental Filters
-    st.subheader("Fundamentals")
+    st.subheader("Price Ratios")
     pe_min, pe_max = st.slider(
         "P/E Ratio",
         0.0, 100.0, (0.0, 100.0),
@@ -135,8 +135,86 @@ with st.sidebar:
         step=0.1
     )
     
+    peg_min, peg_max = st.slider(
+        "PEG Ratio",
+        0.0, 10.0, (0.0, 10.0),
+        step=0.1
+    )
+    
     min_dividend = st.slider("Min Dividend Yield (%)", 0.0, 10.0, 0.0, step=0.1)
     
+    st.markdown("---")
+    
+    st.subheader("Profitability Ratios")
+    roe_min, roe_max = st.slider(
+        "ROE (%)",
+        -50.0, 100.0, (-50.0, 100.0),
+        step=0.1
+    )
+    
+    roa_min, roa_max = st.slider(
+        "ROA (%)",
+        -50.0, 50.0, (-50.0, 50.0),
+        step=0.1
+    )
+    
+    profit_margin_min, profit_margin_max = st.slider(
+        "Profit Margin (%)",
+        -50.0, 50.0, (-50.0, 50.0),
+        step=0.1
+    )
+    
+    operating_margin_min, operating_margin_max = st.slider(
+        "Operating Margin (%)",
+        -50.0, 50.0, (-50.0, 50.0),
+        step=0.1
+    )
+    
+    st.markdown("---")
+    
+    st.subheader("Leverage Ratios")
+    debt_to_equity_min, debt_to_equity_max = st.slider(
+        "Debt to Equity",
+        0.0, 10.0, (0.0, 10.0),
+        step=0.1
+    )
+    
+    debt_to_assets_min, debt_to_assets_max = st.slider(
+        "Debt to Assets (%)",
+        0.0, 100.0, (0.0, 100.0),
+        step=0.1
+    )
+    
+    equity_ratio_min, equity_ratio_max = st.slider(
+        "Equity Ratio (%)",
+        0.0, 100.0, (0.0, 100.0),
+        step=0.1
+    )
+    
+    interest_coverage_min, interest_coverage_max = st.slider(
+        "Interest Coverage",
+        0.0, 50.0, (0.0, 50.0),
+        step=0.1
+    )
+    
+    st.markdown("---")
+    
+    st.subheader("Liquidity Ratios")
+    current_ratio_min, current_ratio_max = st.slider(
+        "Current Ratio",
+        0.0, 10.0, (0.0, 10.0),
+        step=0.1
+    )
+    
+    quick_ratio_min, quick_ratio_max = st.slider(
+        "Quick Ratio",
+        0.0, 10.0, (0.0, 10.0),
+        step=0.1
+    )
+    
+    st.markdown("---")
+    
+    st.subheader("Other Metrics")
     beta_min, beta_max = st.slider(
         "Beta",
         0.0, 5.0, (0.0, 5.0),
@@ -373,6 +451,118 @@ def fetch_stock(symbol):
         except:
             info = t.info if hasattr(t, 'info') else {}
         
+        # Get financial statements for ratio calculations
+        try:
+            balance_sheet = t.balance_sheet
+            income_stmt = t.financials
+            cashflow = t.cashflow
+        except:
+            balance_sheet = None
+            income_stmt = None
+            cashflow = None
+        
+        # Calculate financial ratios from financial statements
+        roe = None
+        roa = None
+        current_ratio = None
+        quick_ratio = None
+        debt_to_equity = None
+        debt_to_assets = None
+        equity_ratio = None
+        interest_coverage = None
+        profit_margin = None
+        operating_margin = None
+        
+        if balance_sheet is not None and not balance_sheet.empty:
+            # Get most recent period (first column)
+            try:
+                # Total assets
+                total_assets = balance_sheet.loc['Total Assets'].iloc[0] if 'Total Assets' in balance_sheet.index else None
+                # Total equity
+                total_equity = balance_sheet.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in balance_sheet.index else None
+                if total_equity is None:
+                    total_equity = balance_sheet.loc['Total Stockholder Equity'].iloc[0] if 'Total Stockholder Equity' in balance_sheet.index else None
+                # Current assets
+                current_assets = balance_sheet.loc['Current Assets'].iloc[0] if 'Current Assets' in balance_sheet.index else None
+                # Current liabilities
+                current_liabilities = balance_sheet.loc['Current Liabilities'].iloc[0] if 'Current Liabilities' in balance_sheet.index else None
+                # Cash and equivalents
+                cash = balance_sheet.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in balance_sheet.index else None
+                # Total debt
+                total_debt = balance_sheet.loc['Total Debt'].iloc[0] if 'Total Debt' in balance_sheet.index else None
+                if total_debt is None:
+                    # Try to calculate from components
+                    long_term_debt = balance_sheet.loc['Long Term Debt'].iloc[0] if 'Long Term Debt' in balance_sheet.index else 0
+                    short_term_debt = balance_sheet.loc['Short Term Debt'].iloc[0] if 'Short Term Debt' in balance_sheet.index else 0
+                    total_debt = long_term_debt + short_term_debt if (long_term_debt or short_term_debt) else None
+                
+                # Calculate ratios
+                if total_equity and total_equity > 0:
+                    equity_ratio = (total_equity / total_assets * 100) if total_assets and total_assets > 0 else None
+                    debt_to_equity = (total_debt / total_equity) if total_debt is not None and total_debt > 0 else None
+                
+                if total_assets and total_assets > 0:
+                    debt_to_assets = (total_debt / total_assets * 100) if total_debt is not None and total_debt > 0 else None
+                
+                if current_assets and current_liabilities and current_liabilities > 0:
+                    current_ratio = current_assets / current_liabilities
+                    if cash is not None:
+                        quick_ratio = (current_assets - (balance_sheet.loc['Inventory'].iloc[0] if 'Inventory' in balance_sheet.index else 0)) / current_liabilities
+            except:
+                pass
+        
+        if income_stmt is not None and not income_stmt.empty:
+            try:
+                # Net income
+                net_income = income_stmt.loc['Net Income'].iloc[0] if 'Net Income' in income_stmt.index else None
+                # Operating income
+                operating_income = income_stmt.loc['Operating Income'].iloc[0] if 'Operating Income' in income_stmt.index else None
+                if operating_income is None:
+                    operating_income = income_stmt.loc['Operating Income Or Loss'].iloc[0] if 'Operating Income Or Loss' in income_stmt.index else None
+                # Total revenue
+                total_revenue = income_stmt.loc['Total Revenue'].iloc[0] if 'Total Revenue' in income_stmt.index else None
+                if total_revenue is None:
+                    total_revenue = income_stmt.loc['Revenue'].iloc[0] if 'Revenue' in income_stmt.index else None
+                # Interest expense
+                interest_expense = income_stmt.loc['Interest Expense'].iloc[0] if 'Interest Expense' in income_stmt.index else None
+                if interest_expense is None:
+                    interest_expense = abs(income_stmt.loc['Interest And Dividend Income'].iloc[0]) if 'Interest And Dividend Income' in income_stmt.index else None
+                
+                # Calculate ROE
+                if net_income and total_equity and total_equity > 0:
+                    roe = (net_income / total_equity) * 100
+                
+                # Calculate ROA
+                if net_income and total_assets and total_assets > 0:
+                    roa = (net_income / total_assets) * 100
+                
+                # Calculate margins
+                if total_revenue and total_revenue > 0:
+                    if net_income:
+                        profit_margin = (net_income / total_revenue) * 100
+                    if operating_income:
+                        operating_margin = (operating_income / total_revenue) * 100
+                
+                # Interest coverage
+                if operating_income and interest_expense and interest_expense > 0:
+                    interest_coverage = operating_income / abs(interest_expense)
+            except:
+                pass
+        
+        # Try to get ratios from info if not calculated
+        if roe is None:
+            roe = info.get('returnOnEquity') * 100 if info.get('returnOnEquity') else None
+        if roa is None:
+            roa = info.get('returnOnAssets') * 100 if info.get('returnOnAssets') else None
+        if current_ratio is None:
+            current_ratio = info.get('currentRatio')
+        if debt_to_equity is None:
+            debt_to_equity = info.get('debtToEquity')
+        if profit_margin is None:
+            profit_margin = info.get('profitMargins') * 100 if info.get('profitMargins') else None
+        if operating_margin is None:
+            operating_margin = info.get('operatingMargins') * 100 if info.get('operatingMargins') else None
+        
         # Calculate technical indicators
         rsi = calculate_rsi(prices, 14)
         sma20 = calculate_sma(prices, 20)
@@ -429,11 +619,28 @@ def fetch_stock(symbol):
             "Price": current_price,
             "Volume": info.get("averageVolume") or info.get("volume24Hr"),
             "MarketCap": info.get("marketCap"),
+            # Price Ratios
             "PE": info.get("trailingPE") or info.get("forwardPE"),
             "PB": info.get("priceToBook"),
             "PS": info.get("priceToSalesTrailing12Months"),
+            "PEG": info.get("pegRatio"),
             "EV_EBITDA": info.get("enterpriseToEbitda"),
+            "EV_Sales": info.get("enterpriseToRevenue"),
             "DividendYield": (info.get("dividendYield") or 0) * 100,
+            # Profitability Ratios
+            "ROE": roe,
+            "ROA": roa,
+            "ProfitMargin": profit_margin,
+            "OperatingMargin": operating_margin,
+            # Leverage Ratios
+            "DebtToEquity": debt_to_equity,
+            "DebtToAssets": debt_to_assets,
+            "EquityRatio": equity_ratio,
+            "InterestCoverage": interest_coverage,
+            # Liquidity Ratios
+            "CurrentRatio": current_ratio,
+            "QuickRatio": quick_ratio,
+            # Other
             "Beta": info.get("beta"),
             "EPSGrowth": eps_growth,
             "RevenueGrowth": revenue_growth_pct,
@@ -521,10 +728,76 @@ def passes_filters(s):
         if ev_ebitda < ev_ebitda_min or ev_ebitda > ev_ebitda_max:
             return False
     
+    # PEG filter
+    peg = s.get("PEG")
+    if peg is not None:
+        if peg < peg_min or peg > peg_max:
+            return False
+    
     # Dividend yield - always has a value (defaults to 0)
     div_yield = s.get("DividendYield", 0)
     if div_yield < min_dividend:
         return False
+    
+    # ROE filter
+    roe = s.get("ROE")
+    if roe is not None:
+        if roe < roe_min or roe > roe_max:
+            return False
+    
+    # ROA filter
+    roa = s.get("ROA")
+    if roa is not None:
+        if roa < roa_min or roa > roa_max:
+            return False
+    
+    # Profit Margin filter
+    profit_margin = s.get("ProfitMargin")
+    if profit_margin is not None:
+        if profit_margin < profit_margin_min or profit_margin > profit_margin_max:
+            return False
+    
+    # Operating Margin filter
+    operating_margin = s.get("OperatingMargin")
+    if operating_margin is not None:
+        if operating_margin < operating_margin_min or operating_margin > operating_margin_max:
+            return False
+    
+    # Debt to Equity filter
+    dte = s.get("DebtToEquity")
+    if dte is not None:
+        if dte < debt_to_equity_min or dte > debt_to_equity_max:
+            return False
+    
+    # Debt to Assets filter
+    dta = s.get("DebtToAssets")
+    if dta is not None:
+        if dta < debt_to_assets_min or dta > debt_to_assets_max:
+            return False
+    
+    # Equity Ratio filter
+    eq_ratio = s.get("EquityRatio")
+    if eq_ratio is not None:
+        if eq_ratio < equity_ratio_min or eq_ratio > equity_ratio_max:
+            return False
+    
+    # Interest Coverage filter
+    int_cov = s.get("InterestCoverage")
+    if int_cov is not None:
+        if int_cov < interest_coverage_min or int_cov > interest_coverage_max:
+            return False
+    
+    # Current Ratio filter
+    curr_ratio = s.get("CurrentRatio")
+    if curr_ratio is not None:
+        if curr_ratio < current_ratio_min or curr_ratio > current_ratio_max:
+            return False
+    
+    # Quick Ratio filter
+    quick_ratio_val = s.get("QuickRatio")
+    if quick_ratio_val is not None:
+        if quick_ratio_val < quick_ratio_min or quick_ratio_val > quick_ratio_max:
+            return False
     
     # Beta filter
     beta = s.get("Beta")
@@ -723,12 +996,18 @@ def format_dataframe(df):
     if "MarketCap" in df.columns:
         df["MarketCap"] = df["MarketCap"].apply(lambda x: format_market_cap(x) if pd.notna(x) else "N/A")
     
-    percent_cols = ["DividendYield", "Week", "Month", "3Months", "6Months", "Year", "EPSGrowth", "RevenueGrowth", "Volatility"]
+    # Percentage columns
+    percent_cols = ["DividendYield", "Week", "Month", "3Months", "6Months", "Year", 
+                   "EPSGrowth", "RevenueGrowth", "Volatility", "ROE", "ROA", 
+                   "ProfitMargin", "OperatingMargin", "DebtToAssets", "EquityRatio"]
     for col in percent_cols:
         if col in df.columns:
             df[col] = df[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A")
     
-    ratio_cols = ["PE", "PB", "PS", "EV_EBITDA", "Beta", "RSI", "Stoch_K", "Stoch_D", "Sharpe"]
+    # Ratio columns (numeric values)
+    ratio_cols = ["PE", "PB", "PS", "PEG", "EV_EBITDA", "EV_Sales", "Beta", "RSI", 
+                 "Stoch_K", "Stoch_D", "Sharpe", "DebtToEquity", "InterestCoverage",
+                 "CurrentRatio", "QuickRatio"]
     for col in ratio_cols:
         if col in df.columns:
             df[col] = df[col].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "N/A")
@@ -813,15 +1092,30 @@ if run_button:
         
         with tab1:
             # Sortable columns
-            sort_col = st.selectbox("Sort by:", ["MarketCap", "Price", "PE", "Year", "RSI", "Sharpe"])
+            sort_col = st.selectbox("Sort by:", [
+                "MarketCap", "Price", 
+                "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                "DebtToEquity", "CurrentRatio", "QuickRatio",
+                "Year", "RSI", "Sharpe"
+            ])
             sort_asc = st.checkbox("Ascending", value=False)
             df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
             
             df_display = format_dataframe(df_sorted)
             
-            display_cols = ["Ticker", "Price", "MarketCap", "PE", "PB", "PS", "EV_EBITDA",
+            display_cols = ["Ticker", "Price", "MarketCap", 
+                          # Price Ratios
+                          "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                          # Profitability
+                          "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                          # Leverage
+                          "DebtToEquity", "DebtToAssets", "InterestCoverage",
+                          # Liquidity
+                          "CurrentRatio", "QuickRatio",
+                          # Other
                           "DividendYield", "Beta", "EPSGrowth", "RevenueGrowth",
-                          "RSI", "MACD_Bullish", "Sharpe", "Volatility",
+                          "RSI", "Sharpe", "Volatility",
                           "Week", "Month", "Year", "Sector"]
             available_cols = [col for col in display_cols if col in df_display.columns]
             df_display = df_display[available_cols]
@@ -905,7 +1199,10 @@ if run_button:
         
         with tab4:
             # Correlation matrix
-            numeric_cols = ["Price", "PE", "PB", "PS", "Beta", "RSI", "Year", "Month", "Week"]
+            numeric_cols = ["Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                          "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                          "DebtToEquity", "CurrentRatio", "QuickRatio",
+                          "Beta", "RSI", "Year", "Month", "Week", "Sharpe"]
             corr_cols = [col for col in numeric_cols if col in df.columns]
             if len(corr_cols) > 1:
                 corr_df = df[corr_cols].corr()
