@@ -1,305 +1,95 @@
-# 📈 AC Stocks Screener
+# Finviz-Style Stock Screener 📈
 
-A modern, professional stock screening platform inspired by Finviz, covering both **US and Canadian markets**.
+An enhanced stock screener built with Streamlit, inspired by Finviz's powerful screening capabilities.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![Streamlit](https://img.shields.io/badge/streamlit-1.40-red.svg)
+## ✨ Enhanced Features
 
----
+### New Additions vs Original:
 
-##  Features
+1. **Advanced Fundamental Filters**
+   - P/E, P/B, P/S ratio filters with ranges
+   - Beta filtering
+   - EPS Growth (YoY) filtering
+   - Enhanced dividend yield filtering
 
-###  Comprehensive Screening
-- **Market Cap Filters**: From micro-cap to mega-cap stocks
-- **Price Ranges**: Custom minimum and maximum price filters
-- **Volume Filters**: Screen by average trading volume
-- **Performance Tracking**: Week, month, quarter, half-year, and annual returns
+2. **Technical Indicators**
+   - RSI (Relative Strength Index) calculation and filtering
+   - Moving Average filters (SMA 20, 50, 200)
+   - Price position relative to moving averages
 
-###  Fundamental Analysis
-- **Valuation Metrics**: P/E, P/S, P/B, PEG ratios
-- **Profitability**: Profit margins, ROE, ROA
-- **Financial Health**: Debt-to-equity, current ratio
-- **Dividends**: Yield and payout information
+3. **Extended Performance Metrics**
+   - Multiple timeframes: 1 Week, 1 Month, 3 Months, 6 Months, 1 Year
+   - Performance range filtering (min/max)
+   - Enhanced performance calculations
 
-###  Multi-Market Coverage
-- **80+ US Stocks**: Major companies across all sectors
-- **45+ Canadian Stocks**: TSX-listed companies
-- **10+ Sectors**: Technology, Healthcare, Finance, Consumer, Industrial, Energy, Materials, Utilities, Real Estate, and more
+4. **Data Visualization**
+   - Interactive performance comparison charts (Plotly)
+   - Fundamentals scatter plots (P/E vs P/B, sized by P/S)
+   - Tabbed interface for different views
 
-###  Modern, Clean UI
-- Gradient header design
-- Professional color scheme (purple/blue theme)
-- Responsive table layout
-- Interactive filters
-- Real-time data updates
+5. **Better Data Display**
+   - Formatted market cap (B, M, T notation)
+   - Summary metrics dashboard
+   - Better column ordering and formatting
+   - Enhanced CSV export
 
----
+6. **Improved User Experience**
+   - Expanded stock universe (more tickers)
+   - Better progress tracking
+   - Welcome screen with features overview
+   - More organized sidebar filters with sections
 
-##  Quick Start
+## 🚀 Installation
 
-### Local Deployment
-
-1. **Clone the repository**
-```bash
-git clone https://github.com/YOUR_USERNAME/acstocksscreener.git
-cd acstocksscreener
-```
-
-2. **Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **Run the app**
+## 📋 Requirements
+
+- streamlit>=1.28.0
+- yfinance>=0.2.28
+- pandas>=2.0.0
+- numpy>=1.24.0
+- plotly>=5.17.0
+
+## 🎯 Usage
+
 ```bash
-streamlit run app.py
+streamlit run stock_screener_enhanced.py
 ```
 
-4. **Open in browser**
-Navigate to `http://localhost:8501`
+## 📊 Features Breakdown
 
----
+### Filter Categories
 
-### Deploy to Streamlit Cloud
+1. **Market Selection**: US and/or Canada markets
+2. **Market Cap**: Mega, Large, Mid, Small, Micro caps
+3. **Price Filters**: Price range with slider
+4. **Volume**: Minimum average volume filtering
+5. **Fundamentals**: P/E, P/B, P/S, Beta, EPS Growth, Dividend Yield
+6. **Performance**: Multiple timeframes with range filtering
+7. **Technical**: RSI, Moving Average positions
+8. **Sectors**: Industry sector filtering
 
-1. **Create GitHub Repository**
-   - Go to [github.com](https://github.com)
-   - Create new repository named `acstocksscreener`
-   - Make it public
+### Data Views
 
-2. **Upload Files**
-   - Upload `app.py`
-   - Upload `requirements.txt`
+- **Table View**: Comprehensive data table with all metrics
+- **Performance Chart**: Bar chart comparing performance across timeframes
+- **Fundamentals Chart**: Scatter plot visualization of valuation metrics
 
-3. **Deploy on Streamlit**
-   - Go to [share.streamlit.io](https://share.streamlit.io)
-   - Sign in with GitHub
-   - Click "New app"
-   - Select your repository
-   - Set main file to `app.py`
-   - Click "Deploy!"
+## 🔧 Technical Improvements
 
-4. **Access Your Live Site**
-   - Your URL: `https://acstocksscreener.streamlit.app`
+- Better error handling
+- Caching for improved performance
+- Rate limiting to avoid API issues
+- More robust data fetching
+- Enhanced data validation
 
----
+## 📝 Notes
 
-## 📖 How to Use
+- Data is cached for 30 minutes (stocks) and 24 hours (universe)
+- Rate limiting added to prevent API throttling
+- Some metrics may be unavailable for certain stocks
+- For educational purposes only - not financial advice
 
-### 1. Select Markets
-Choose between US Stocks and Canadian (TSX) markets, or both.
-
-### 2. Set Filters
-
-**Market Cap:**
-- Mega (>$200B)
-- Large ($10B-$200B)
-- Mid ($2B-$10B)
-- Small ($300M-$2B)
-- Micro (<$300M)
-
-**Price:**
-- Set minimum and maximum price range
-
-**Volume:**
-- Filter by average daily trading volume
-
-**Performance:**
-- Screen by weekly, monthly, quarterly, or annual performance
-
-**Fundamentals:**
-- Maximum P/E ratio
-- Minimum profit margin
-- Minimum ROE
-
-**Sector:**
-- Filter by specific industries
-
-### 3. Run Screener
-Click the **"🚀 RUN SCREENER"** button to analyze stocks.
-
-### 4. View Results
-- See matching stocks in a clean table format
-- Sort by any column
-- View key metrics at a glance
-
-### 5. Export Data
-Download results as CSV for further analysis.
-
----
-
-##  Available Metrics
-
-| Metric | Description |
-|--------|-------------|
-| **Price** | Current stock price |
-| **Change %** | Daily price change percentage |
-| **Volume** | Average trading volume |
-| **Market Cap** | Total market capitalization |
-| **P/E Ratio** | Price-to-earnings ratio |
-| **EPS** | Earnings per share |
-| **Dividend %** | Dividend yield |
-| **Profit Margin** | Net profit margin |
-| **ROE** | Return on equity |
-| **Performance** | Returns over various periods |
-
----
-
-##  Use Cases
-
-### For Long-Term Investors
-- Find undervalued stocks with strong fundamentals
-- Screen for dividend-paying stocks
-- Identify growth stocks with consistent performance
-
-### For Value Investors
-- Low P/E ratios
-- High profit margins
-- Strong balance sheets
-
-### For Growth Investors
-- High ROE
-- Strong year-over-year performance
-- Expanding market cap
-
-### For Dividend Investors
-- High dividend yields
-- Consistent payout history
-- Financial stability
-
----
-
-##  Technical Details
-
-### Built With
-- **Python 3.8+**
-- **Streamlit** - Web framework
-- **yfinance** - Market data API
-- **Pandas** - Data manipulation
-
-### Data Source
-- **Yahoo Finance API** via yfinance library
-- Real-time stock quotes
-- Historical performance data
-- Fundamental metrics
-
-### Update Frequency
-- Prices: Real-time (delayed 15 minutes)
-- Fundamentals: Updated quarterly
-- Performance: Calculated from historical data
-
----
-
-## ⚙️ Customization
-
-### Adding More Stocks
-
-Edit the `get_stock_universe()` function in `app.py`:
-
-```python
-# Add to US stocks list
-us_stocks = [
-    'AAPL', 'MSFT', 'YOUR_SYMBOL_HERE'
-]
-
-# Add to Canadian stocks list
-tsx_stocks = [
-    'RY.TO', 'YOUR_SYMBOL.TO'
-]
-```
-
-### Changing Color Scheme
-
-Modify the CSS in the `st.markdown()` section at the top of `app.py`:
-
-```css
-.header-container {
-    background: linear-gradient(135deg, #YOUR_COLOR1, #YOUR_COLOR2);
-}
-```
-
----
-
-##  Troubleshooting
-
-### Issue: No stocks showing
-**Solution:** Lower your filter criteria. Try setting:
-- Market Cap: Any
-- P/E: 100
-- Profit Margin: -50
-- ROE: -50
-
-### Issue: Slow performance
-**Solution:** 
-- Reduce number of stocks in universe
-- Use caching (already implemented)
-- Deploy to Streamlit Cloud for better resources
-
-### Issue: Data not loading
-**Solution:**
-- Check internet connection
-- Yahoo Finance API may be rate-limiting
-- Wait a few minutes and try again
-
----
-
-##  Limitations
-
-1. **Data Accuracy**: Relies on Yahoo Finance API
-2. **Real-time Data**: 15-minute delay on free tier
-3. **Coverage**: Limited to stocks with Yahoo Finance data
-4. **Rate Limits**: May encounter API limits with frequent use
-
----
-
-##  Disclaimer
-
-**Important:** This tool is for informational and educational purposes only.
-
-- Not investment advice
-- Always do your own research
-- Consult financial professionals before investing
-- Past performance does not guarantee future results
-- Stock investing carries risk of loss
-
----
-
-##  License
-
-MIT License - feel free to use and modify for your own projects.
-
----
-
-##  Contributing
-
-Contributions welcome! Feel free to:
-- Report bugs
-- Suggest features
-- Submit pull requests
-- Improve documentation
-
----
-
-## 📞 Support
-
-For issues or questions:
-- Check the troubleshooting section
-- Review Streamlit documentation: [docs.streamlit.io](https://docs.streamlit.io)
-- Check yfinance docs: [github.com/ranaroussi/yfinance](https://github.com/ranaroussi/yfinance)
-
----
-
-## 🎉 Acknowledgments
-
-- **Finviz** - Inspiration for design and features
-- **Yahoo Finance** - Market data
-- **Streamlit** - Amazing web framework
-- **Python Community** - Open source libraries
-
----
-
-<div align="center">
-    <p><strong>AC Stocks Screener</strong></p>
-    <p>Built with ❤️ for the investing community</p>
-</div>
