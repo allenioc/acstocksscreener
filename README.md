@@ -39,13 +39,13 @@ An enhanced stock screener built with Streamlit, inspired by Finviz's powerful s
    - Welcome screen with features overview
    - More organized sidebar filters with sections
 
-## 🚀 Installation
+##  Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 📋 Requirements
+##  Requirements
 
 - streamlit>=1.28.0
 - yfinance>=0.2.28
@@ -53,13 +53,13 @@ pip install -r requirements.txt
 - numpy>=1.24.0
 - plotly>=5.17.0
 
-## 🎯 Usage
+##  Usage
 
 ```bash
 streamlit run stock_screener_enhanced.py
 ```
 
-## 📊 Features Breakdown
+##  Features Breakdown
 
 ### Filter Categories
 
@@ -78,7 +78,7 @@ streamlit run stock_screener_enhanced.py
 - **Performance Chart**: Bar chart comparing performance across timeframes
 - **Fundamentals Chart**: Scatter plot visualization of valuation metrics
 
-## 🔧 Technical Improvements
+##  Technical Improvements
 
 - Better error handling
 - Caching for improved performance
@@ -86,7 +86,7 @@ streamlit run stock_screener_enhanced.py
 - More robust data fetching
 - Enhanced data validation
 
-## 📝 Notes
+##  Notes
 
 - Data is cached for 30 minutes (stocks) and 24 hours (universe)
 - Rate limiting added to prevent API throttling
