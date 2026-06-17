@@ -11,6 +11,7 @@ import streamlit as st
 
 from filter_logic import build_filter_config, any_filter_active
 from theme import THEME, apply_dark_plotly_layout
+from financial_statements import render_financial_statements
 
 KEY_METRICS = [
     ("price", "Price"),
@@ -509,5 +510,7 @@ def render_stock_detail_panel(
             st.markdown("**Missing data warnings**")
             for m in missing_fields:
                 st.write(f"• {m}: Data unavailable")
+
+    render_financial_statements(metrics["ticker"])
 
     st.caption("Rule-based analysis for educational purposes only. Not financial advice. No buy/sell recommendation.")
