@@ -8,48 +8,31 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import warnings
+from theme import (
+    get_global_css,
+    terminal_header,
+    status_strip,
+    kpi_card,
+    format_pct,
+    delta_type_for_value,
+    apply_dark_plotly_layout,
+    THEME,
+)
 warnings.filterwarnings('ignore')
 
 # =============================
 # PAGE CONFIG
 # =============================
 st.set_page_config(
-    page_title="Professional Stock Screener",
+    page_title="Stock Screener Terminal",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # =============================
-# CUSTOM CSS - ENHANCED
+# GLOBAL THEME
 # =============================
-st.markdown("""
-<style>
-    .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    .positive { color: #00ff88; font-weight: bold; }
-    .negative { color: #ff4444; font-weight: bold; }
-    .stDataFrame { font-size: 0.85rem; }
-    h1, h2, h3 {
-        color: #1f1f1f;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 10px 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(f"<style>{get_global_css()}</style>", unsafe_allow_html=True)
 
 # =============================
 # SESSION STATE INITIALIZATION
@@ -62,19 +45,16 @@ if 'screened_stocks' not in st.session_state:
 # =============================
 # HEADER
 # =============================
-st.markdown("""
-<div style="background: linear-gradient(135deg,#667eea,#764ba2);
-padding:2rem;border-radius:12px;margin-bottom:1.5rem;color:white;text-align:center;box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-<h1 style="color:white;margin:0;">Professional Stock Screener</h1>
-<p style="color:white;font-size:1.1em;margin:0.5rem 0 0 0;">Advanced Stock Analysis & Screening Platform</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    terminal_header("Stock Screener Terminal", "US & Canadian Market Screening"),
+    unsafe_allow_html=True,
+)
 
 # =============================
 # SIDEBAR FILTERS
 # =============================
 with st.sidebar:
-    st.header("Screening Filters")
+    st.markdown('<div class="filter-group-label">Screening Filters</div>', unsafe_allow_html=True)
     
     # Market Selection
     markets = st.multiselect(
@@ -92,7 +72,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Price Filters
-    st.subheader("Price")
+    st.markdown('<div class="filter-group-label">Price</div>', unsafe_allow_html=True)
     price_min, price_max = st.slider(
         "Price Range ($)",
         0.0, 5000.0, (0.0, 5000.0),
@@ -100,7 +80,7 @@ with st.sidebar:
     )
     
     # Volume Filter
-    st.subheader("Volume & Liquidity")
+    st.markdown('<div class="filter-group-label">Volume & Liquidity</div>', unsafe_allow_html=True)
     min_volume = st.selectbox(
         "Min Avg Volume",
         [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000],
@@ -110,7 +90,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Fundamental Filters
-    st.subheader("Price Ratios")
+    st.markdown('<div class="filter-group-label">Price Ratios</div>', unsafe_allow_html=True)
     pe_min, pe_max = st.slider(
         "P/E Ratio",
         0.0, 100.0, (0.0, 100.0),
@@ -145,7 +125,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    st.subheader("Profitability Ratios")
+    st.markdown('<div class="filter-group-label">Profitability Ratios</div>', unsafe_allow_html=True)
     roe_min, roe_max = st.slider(
         "ROE (%)",
         -50.0, 100.0, (-50.0, 100.0),
@@ -172,7 +152,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    st.subheader("Leverage Ratios")
+    st.markdown('<div class="filter-group-label">Leverage Ratios</div>', unsafe_allow_html=True)
     debt_to_equity_min, debt_to_equity_max = st.slider(
         "Debt to Equity",
         0.0, 10.0, (0.0, 10.0),
@@ -199,7 +179,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    st.subheader("Liquidity Ratios")
+    st.markdown('<div class="filter-group-label">Liquidity Ratios</div>', unsafe_allow_html=True)
     current_ratio_min, current_ratio_max = st.slider(
         "Current Ratio",
         0.0, 10.0, (0.0, 10.0),
@@ -214,7 +194,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    st.subheader("Other Metrics")
+    st.markdown('<div class="filter-group-label">Other Metrics</div>', unsafe_allow_html=True)
     beta_min, beta_max = st.slider(
         "Beta",
         0.0, 5.0, (0.0, 5.0),
@@ -227,7 +207,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Performance Filters
-    st.subheader("Performance")
+    st.markdown('<div class="filter-group-label">Performance</div>', unsafe_allow_html=True)
     perf_period = st.selectbox(
         "Performance Period",
         ["Any", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"]
@@ -241,7 +221,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Technical Filters
-    st.subheader("Technical Indicators")
+    st.markdown('<div class="filter-group-label">Technical Indicators</div>', unsafe_allow_html=True)
     rsi_min, rsi_max = st.slider(
         "RSI (14)",
         0.0, 100.0, (0.0, 100.0),
@@ -258,7 +238,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Sector Filter
-    st.subheader("Sectors & Industries")
+    st.markdown('<div class="filter-group-label">Sectors & Industries</div>', unsafe_allow_html=True)
     sector_filter = st.multiselect(
         "Sectors",
         ["Any", "Technology", "Healthcare", "Financial Services",
@@ -271,10 +251,10 @@ with st.sidebar:
     st.markdown("---")
     
     # Run Button
-    run_button = st.button("RUN SCREENER", use_container_width=True, type="primary")
+    run_button = st.button("Run Screener", use_container_width=True, type="primary")
     
     st.markdown("---")
-    st.markdown("**Watchlist:** " + str(len(st.session_state.watchlist)) + " stocks")
+    st.caption(f"Watchlist: {len(st.session_state.watchlist)} stocks")
 
 # =============================
 # EXPANDED STOCK UNIVERSE
@@ -873,6 +853,7 @@ def passes_filters(s):
 # =============================
 def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MACD']):
     """Create advanced candlestick chart with multiple indicators"""
+    t = THEME
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
@@ -889,7 +870,11 @@ def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MA
             high=hist['High'],
             low=hist['Low'],
             close=hist['Close'],
-            name='Price'
+            name='Price',
+            increasing_line_color=t['positive'],
+            increasing_fillcolor=t['positive'],
+            decreasing_line_color=t['negative'],
+            decreasing_fillcolor=t['negative'],
         ),
         row=1, col=1
     )
@@ -899,19 +884,19 @@ def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MA
         if len(hist) >= 20:
             sma20 = hist['Close'].rolling(window=20).mean()
             fig.add_trace(
-                go.Scatter(x=hist.index, y=sma20, name='SMA 20', line=dict(color='orange', width=1)),
+                go.Scatter(x=hist.index, y=sma20, name='SMA 20', line=dict(color='#38bdf8', width=1)),
                 row=1, col=1
             )
         if len(hist) >= 50:
             sma50 = hist['Close'].rolling(window=50).mean()
             fig.add_trace(
-                go.Scatter(x=hist.index, y=sma50, name='SMA 50', line=dict(color='blue', width=1)),
+                go.Scatter(x=hist.index, y=sma50, name='SMA 50', line=dict(color=t['accent_blue'], width=1)),
                 row=1, col=1
             )
         if len(hist) >= 200:
             sma200 = hist['Close'].rolling(window=200).mean()
             fig.add_trace(
-                go.Scatter(x=hist.index, y=sma200, name='SMA 200', line=dict(color='red', width=1)),
+                go.Scatter(x=hist.index, y=sma200, name='SMA 200', line=dict(color='#facc15', width=1)),
                 row=1, col=1
             )
     
@@ -924,18 +909,18 @@ def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MA
         bb_lower = sma - (std * 2)
         
         fig.add_trace(
-            go.Scatter(x=hist.index, y=bb_upper, name='BB Upper', line=dict(color='gray', width=1, dash='dash')),
+            go.Scatter(x=hist.index, y=bb_upper, name='BB Upper', line=dict(color=t['neutral'], width=1, dash='dash')),
             row=1, col=1
         )
         fig.add_trace(
-            go.Scatter(x=hist.index, y=bb_lower, name='BB Lower', line=dict(color='gray', width=1, dash='dash'), fill='tonexty'),
+            go.Scatter(x=hist.index, y=bb_lower, name='BB Lower', line=dict(color=t['neutral'], width=1, dash='dash'), fill='tonexty'),
             row=1, col=1
         )
     
     # Volume
-    colors = ['red' if hist['Close'].iloc[i] < hist['Open'].iloc[i] else 'green' for i in range(len(hist))]
+    colors = [t['negative'] if hist['Close'].iloc[i] < hist['Open'].iloc[i] else t['positive'] for i in range(len(hist))]
     fig.add_trace(
-        go.Bar(x=hist.index, y=hist['Volume'], name='Volume', marker_color=colors),
+        go.Bar(x=hist.index, y=hist['Volume'], name='Volume', marker_color=colors, opacity=0.75),
         row=2, col=1
     )
     
@@ -948,25 +933,31 @@ def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MA
         histogram = macd - signal
         
         fig.add_trace(
-            go.Scatter(x=hist.index, y=macd, name='MACD', line=dict(color='blue', width=2)),
+            go.Scatter(x=hist.index, y=macd, name='MACD', line=dict(color=t['accent_blue'], width=2)),
             row=3, col=1
         )
         fig.add_trace(
-            go.Scatter(x=hist.index, y=signal, name='Signal', line=dict(color='red', width=2)),
+            go.Scatter(x=hist.index, y=signal, name='Signal', line=dict(color='#facc15', width=2)),
             row=3, col=1
         )
+        hist_colors = [t['positive'] if v >= 0 else t['negative'] for v in histogram]
         fig.add_trace(
-            go.Bar(x=hist.index, y=histogram, name='Histogram', marker_color='gray'),
+            go.Bar(x=hist.index, y=histogram, name='Histogram', marker_color=hist_colors, opacity=0.7),
             row=3, col=1
         )
-        fig.add_hline(y=0, line_dash="dash", line_color="black", row=3, col=1)
+        fig.add_hline(y=0, line_dash="dash", line_color=t['border_default'], row=3, col=1)
     
     fig.update_xaxes(rangeslider_visible=False)
-    fig.update_layout(height=900, showlegend=True, hovermode='x unified')
+    apply_dark_plotly_layout(fig, height=900)
+    fig.update_layout(showlegend=True, hovermode='x unified')
+    for annotation in fig.layout.annotations:
+        annotation.font.color = t['text_secondary']
+        annotation.font.size = 12
     return fig
 
 def create_rsi_chart(hist, symbol):
     """Create RSI indicator chart"""
+    t = THEME
     if len(hist) < 15:
         return None
     
@@ -977,10 +968,11 @@ def create_rsi_chart(hist, symbol):
     rsi = 100 - (100 / (1 + rs))
     
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=hist.index, y=rsi, mode='lines', name='RSI', line=dict(color='purple', width=2)))
-    fig.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought (70)")
-    fig.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold (30)")
-    fig.update_layout(title=f'{symbol} - RSI (14)', yaxis_title='RSI', xaxis_title='Date', yaxis_range=[0, 100], height=300)
+    fig.add_trace(go.Scatter(x=hist.index, y=rsi, mode='lines', name='RSI', line=dict(color=t['accent_blue'], width=2)))
+    fig.add_hline(y=70, line_dash="dash", line_color=t['negative'], annotation_text="Overbought (70)")
+    fig.add_hline(y=30, line_dash="dash", line_color=t['positive'], annotation_text="Oversold (30)")
+    apply_dark_plotly_layout(fig, title=f'{symbol} - RSI (14)', height=300)
+    fig.update_layout(yaxis_title='RSI', xaxis_title='Date', yaxis_range=[0, 100])
     return fig
 
 # =============================
@@ -997,12 +989,16 @@ def format_dataframe(df):
         df["MarketCap"] = df["MarketCap"].apply(lambda x: format_market_cap(x) if pd.notna(x) else "N/A")
     
     # Percentage columns
-    percent_cols = ["DividendYield", "Week", "Month", "3Months", "6Months", "Year", 
-                   "EPSGrowth", "RevenueGrowth", "Volatility", "ROE", "ROA", 
+    percent_cols = ["DividendYield", "EPSGrowth", "RevenueGrowth", "Volatility", "ROE", "ROA", 
                    "ProfitMargin", "OperatingMargin", "DebtToAssets", "EquityRatio"]
     for col in percent_cols:
         if col in df.columns:
-            df[col] = df[col].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A")
+            df[col] = df[col].apply(lambda x: format_pct(x) if pd.notna(x) else "N/A")
+
+    perf_cols = ["Week", "Month", "3Months", "6Months", "Year"]
+    for col in perf_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: format_pct(x) if pd.notna(x) else "N/A")
     
     # Ratio columns (numeric values)
     ratio_cols = ["PE", "PB", "PS", "PEG", "EV_EBITDA", "EV_Sales", "Beta", "RSI", 
@@ -1033,7 +1029,7 @@ if run_button:
     
     progress_container = st.container()
     with progress_container:
-        st.info(f"Screening {len(universe)} stocks with advanced filters...")
+        st.markdown(status_strip(f"Screening {len(universe)} symbols with active filters..."), unsafe_allow_html=True)
         progress_bar = st.progress(0)
         status_text = st.empty()
     
@@ -1067,30 +1063,40 @@ if run_button:
         
         # Summary metrics
         col1, col2, col3, col4, col5 = st.columns(5)
+        avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
+        avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
+        avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
+        total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
+
         with col1:
-            st.metric("Stocks Found", len(df))
+            st.markdown(kpi_card("Matches", str(len(df))), unsafe_allow_html=True)
         with col2:
-            avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
-            st.metric("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "N/A")
+            st.markdown(kpi_card("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "N/A"), unsafe_allow_html=True)
         with col3:
-            avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
-            st.metric("Avg YTD Return", f"{avg_perf:.2f}%" if avg_perf else "N/A")
+            st.markdown(
+                kpi_card(
+                    "Avg 1Y Return",
+                    format_pct(avg_perf) if avg_perf is not None else "N/A",
+                    delta="Annual performance" if avg_perf is not None else "",
+                    delta_type=delta_type_for_value(avg_perf),
+                ),
+                unsafe_allow_html=True,
+            )
         with col4:
-            avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
-            st.metric("Avg Sharpe Ratio", f"{avg_sharpe:.2f}" if avg_sharpe else "N/A")
+            st.markdown(kpi_card("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "N/A"), unsafe_allow_html=True)
         with col5:
-            total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
-            st.metric("Total Market Cap", format_market_cap(total_mc) if total_mc else "N/A")
+            st.markdown(kpi_card("Total Mkt Cap", format_market_cap(total_mc) if total_mc else "N/A"), unsafe_allow_html=True)
         
-        st.markdown("---")
+        st.markdown(status_strip(f"{len(df)} symbols matched · sorted by market cap"), unsafe_allow_html=True)
         
         # Main tabs
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Data Table", "Performance Analysis", "Sector Analysis", "Correlation Matrix", 
-            "Stock Charts", "Watchlist"
+            "Results", "Performance", "Sectors", "Correlation", 
+            "Charts", "Watchlist"
         ])
         
         with tab1:
+            st.markdown('<div class="section-header">Screener Results</div>', unsafe_allow_html=True)
             # Sortable columns
             sort_col = st.selectbox("Sort by:", [
                 "MarketCap", "Price", 
@@ -1158,16 +1164,21 @@ if run_button:
                     perf_df.T,
                     labels=dict(x="Stock", y="Period", color="Return (%)"),
                     title="Performance Heatmap (%)",
-                    color_continuous_scale="RdYlGn",
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["neutral"]],
+                        [1.0, THEME["positive"]],
+                    ],
                     aspect="auto"
                 )
-                fig.update_layout(height=500)
+                apply_dark_plotly_layout(fig, height=500)
                 st.plotly_chart(fig, use_container_width=True)
             
             # Performance comparison
             if len(perf_df.columns) > 0:
                 fig = px.bar(perf_df.T, title="Performance Comparison", labels={"value": "Return (%)", "index": "Period"})
-                fig.update_layout(height=600, showlegend=True)
+                apply_dark_plotly_layout(fig, height=600)
+                fig.update_layout(showlegend=True)
                 st.plotly_chart(fig, use_container_width=True)
         
         with tab3:
@@ -1182,7 +1193,7 @@ if run_button:
                 sector_stats.columns = ["Count", "Avg Return (%)", "Avg P/E", "Total Market Cap"]
                 sector_stats = sector_stats.sort_values("Count", ascending=False)
                 
-                st.subheader("Sector Breakdown")
+                st.markdown('<div class="section-header">Sector Breakdown</div>', unsafe_allow_html=True)
                 st.dataframe(sector_stats, use_container_width=True)
                 
                 # Sector performance chart
@@ -1192,9 +1203,13 @@ if run_button:
                     y="Avg Return (%)",
                     title="Average Performance by Sector",
                     color="Avg Return (%)",
-                    color_continuous_scale="RdYlGn"
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["neutral"]],
+                        [1.0, THEME["positive"]],
+                    ],
                 )
-                fig.update_layout(height=500)
+                apply_dark_plotly_layout(fig, height=500)
                 st.plotly_chart(fig, use_container_width=True)
         
         with tab4:
@@ -1211,15 +1226,19 @@ if run_button:
                     corr_df,
                     labels=dict(color="Correlation"),
                     title="Correlation Matrix",
-                    color_continuous_scale="RdBu",
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["bg_surface_muted"]],
+                        [1.0, THEME["accent_blue"]],
+                    ],
                     aspect="auto",
                     text_auto=True
                 )
-                fig.update_layout(height=700)
+                apply_dark_plotly_layout(fig, height=700)
                 st.plotly_chart(fig, use_container_width=True)
         
         with tab5:
-            st.subheader("Advanced Stock Charts")
+            st.markdown('<div class="section-header">Stock Detail Charts</div>', unsafe_allow_html=True)
             
             if len(df) > 0:
                 ticker_list = df["Ticker"].tolist()
@@ -1237,15 +1256,23 @@ if run_button:
                         
                         col1, col2, col3, col4, col5 = st.columns(5)
                         with col1:
-                            st.metric("Price", f"${current_price:.2f}")
+                            st.markdown(kpi_card("Price", f"${current_price:.2f}"), unsafe_allow_html=True)
                         with col2:
-                            st.metric("Change", f"${price_change:.2f}", f"{price_change_pct:.2f}%")
+                            st.markdown(
+                                kpi_card(
+                                    "Change",
+                                    f"${price_change:+.2f}",
+                                    delta=format_pct(price_change_pct),
+                                    delta_type=delta_type_for_value(price_change_pct),
+                                ),
+                                unsafe_allow_html=True,
+                            )
                         with col3:
-                            st.metric("High", f"${hist_data['High'].max():.2f}")
+                            st.markdown(kpi_card("High", f"${hist_data['High'].max():.2f}"), unsafe_allow_html=True)
                         with col4:
-                            st.metric("Low", f"${hist_data['Low'].min():.2f}")
+                            st.markdown(kpi_card("Low", f"${hist_data['Low'].min():.2f}"), unsafe_allow_html=True)
                         with col5:
-                            st.metric("Volume", f"{hist_data['Volume'].iloc[-1]:,.0f}")
+                            st.markdown(kpi_card("Volume", f"{hist_data['Volume'].iloc[-1]:,.0f}"), unsafe_allow_html=True)
                         
                         st.markdown("---")
                         
@@ -1263,7 +1290,7 @@ if run_button:
                         st.warning(f"Could not fetch data for {selected_ticker}")
         
         with tab6:
-            st.subheader("Watchlist")
+            st.markdown('<div class="section-header">Watchlist</div>', unsafe_allow_html=True)
             
             if st.session_state.watchlist:
                 watchlist_df = df[df["Ticker"].isin(st.session_state.watchlist)] if st.session_state.screened_stocks is not None else pd.DataFrame()
@@ -1291,34 +1318,32 @@ if run_button:
             st.info(f"{errors} stocks could not be processed.")
 
 else:
-    # Welcome screen
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("""
-        <div style="text-align: center; padding: 2rem;">
-        <h2>Welcome to Professional Stock Screener</h2>
-        <p style="font-size: 1.1em;">Advanced stock screening and analysis platform with comprehensive technical and fundamental analysis tools.</p>
+    st.markdown(
+        status_strip("Configure filters in the sidebar, then run the screener to load results."),
+        unsafe_allow_html=True,
+    )
+    st.markdown("""
+    <div class="welcome-panel">
+        <h2>Market Screening Terminal</h2>
+        <p>Dense fundamental and technical screening for US and Canadian equities. All filters remain available in the sidebar.</p>
         <br>
-        <h3>Key Features:</h3>
-        <ul style="text-align: left; display: inline-block;">
-        <li>Advanced fundamental filters (P/E, P/B, P/S, EV/EBITDA, Growth metrics)</li>
-        <li>Technical indicators (RSI, MACD, Bollinger Bands, Stochastic, ATR)</li>
-        <li>Risk metrics (Sharpe Ratio, Volatility)</li>
-        <li>Performance analysis across multiple timeframes</li>
-        <li>Interactive charts with multiple indicators</li>
-        <li>Sector and correlation analysis</li>
-        <li>Watchlist functionality</li>
-        <li>Export capabilities</li>
+        <div class="section-header">Capabilities</div>
+        <ul>
+        <li>Fundamental filters: P/E, P/B, P/S, EV/EBITDA, growth, margins, leverage, liquidity</li>
+        <li>Technical indicators: RSI, MACD, Bollinger Bands, SMA crossovers, stochastic, ATR</li>
+        <li>Risk metrics: Sharpe ratio and volatility</li>
+        <li>Performance views across week, month, quarter, half-year, and year</li>
+        <li>Interactive dark charts, sector breakdown, correlation matrix</li>
+        <li>Watchlist tracking and CSV / Excel export</li>
         </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
 # =============================
 # FOOTER
 # =============================
-st.markdown("---")
 st.markdown(
-    "<center>Professional Stock Screener | Powered by Yahoo Finance<br>"
-    "<small>For educational purposes only | Not financial advice</small></center>",
-    unsafe_allow_html=True
+    '<div class="terminal-footer">Stock Screener Terminal · Powered by Yahoo Finance<br>'
+    '<small>For educational purposes only · Not financial advice</small></div>',
+    unsafe_allow_html=True,
 )
