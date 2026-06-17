@@ -26,6 +26,7 @@ from screener_backend import (
     format_screener_results,
     UNIVERSE_SIZE_OPTIONS,
 )
+from nav_pages import render_charts_page
 warnings.filterwarnings('ignore')
 
 # =============================
@@ -49,6 +50,10 @@ if 'watchlist' not in st.session_state:
     st.session_state.watchlist = []
 if 'screened_stocks' not in st.session_state:
     st.session_state.screened_stocks = None
+if 'screener_has_run' not in st.session_state:
+    st.session_state.screener_has_run = False
+if 'last_filter_debug' not in st.session_state:
+    st.session_state.last_filter_debug = None
 
 def calculate_rsi(prices, period=14):
     """Calculate Relative Strength Index"""
@@ -580,7 +585,10 @@ def format_market_cap(mc):
 # =============================
 current_page = render_top_nav()
 
-if current_page == "Screener":
+if current_page == "Charts":
+    render_charts_page(fetch_historical_data, create_advanced_candlestick_chart, create_rsi_chart)
+
+elif current_page == "Screener":
     st.markdown(filter_panel_open(), unsafe_allow_html=True)
     st.markdown('<div class="filter-zone">', unsafe_allow_html=True)
 
@@ -617,15 +625,15 @@ if current_page == "Screener":
     with ftab2:
         r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
         with r2c1:
-            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v3")
+            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v4")
         with r2c2:
-            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v3")
+            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v4")
         with r2c3:
-            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v3")
+            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v4")
         with r2c4:
-            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v3")
+            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v4")
         with r2c5:
-            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v3")
+            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v4")
 
         r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
         with r2b1:
@@ -641,7 +649,7 @@ if current_page == "Screener":
 
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
-            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v3")
+            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v4")
         with r2c2b:
             debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", DEFAULT_BOUNDS["debt_to_assets"][0], DEFAULT_BOUNDS["debt_to_assets"][1], DEFAULT_BOUNDS["debt_to_assets"], step=0.1)
         with r2c3b:
@@ -649,11 +657,11 @@ if current_page == "Screener":
         with r2c4b:
             interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", DEFAULT_BOUNDS["interest_coverage"][0], DEFAULT_BOUNDS["interest_coverage"][1], DEFAULT_BOUNDS["interest_coverage"], step=0.1)
         with r2c5b:
-            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v3")
+            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v4")
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v3")
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v4")
         with r2d2:
             beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
         with r2d3:
@@ -745,8 +753,16 @@ if current_page == "Screener":
         progress_bar.empty()
         status_text.empty()
         st.session_state.last_filter_debug = debug
+        st.session_state.screened_stocks = filtered_df.copy() if not filtered_df.empty else pd.DataFrame()
+        st.session_state.screener_has_run = True
 
-        with st.expander("Filter debug", expanded=filtered_df.empty):
+    if st.session_state.get("last_filter_debug"):
+        debug = st.session_state.last_filter_debug
+        no_matches = (
+            st.session_state.screened_stocks is None
+            or st.session_state.screened_stocks.empty
+        )
+        with st.expander("Filter debug", expanded=no_matches):
             st.write(f"**Total symbols loaded:** {debug['symbols_loaded']}")
             st.write(f"**Symbols scanned:** {debug['symbols_scanned']}")
             st.write(f"**Price data fetched:** {debug['price_fetched']}")
@@ -763,247 +779,243 @@ if current_page == "Screener":
                 st.markdown("**First excluded tickers:**")
                 st.dataframe(pd.DataFrame(debug["excluded_samples"]), hide_index=True, use_container_width=True)
 
-        if not filtered_df.empty:
-            df = filtered_df.copy()
+    df = st.session_state.get("screened_stocks")
+    if df is not None and not df.empty:
+        if "MarketCap" in df.columns:
+            df = df.sort_values("MarketCap", ascending=False, na_position='last')
 
-            if "MarketCap" in df.columns:
-                df = df.sort_values("MarketCap", ascending=False, na_position='last')
+        avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
+        avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
+        avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
+        total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
 
-            st.session_state.screened_stocks = df
-        
-            avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
-            avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
-            avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
-            total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
+        st.markdown(results_bar(count=len(df)), unsafe_allow_html=True)
+        st.markdown(kpi_strip([
+            ("Matches", str(len(df))),
+            ("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "-"),
+            ("Avg 1Y", format_pct(avg_perf) if avg_perf is not None else "-", delta_class(avg_perf)),
+            ("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "-"),
+            ("Total Cap", format_market_cap(total_mc) if total_mc else "-"),
+        ]), unsafe_allow_html=True)
 
-            st.markdown(results_bar(count=len(df)), unsafe_allow_html=True)
-            st.markdown(kpi_strip([
-                ("Matches", str(len(df))),
-                ("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "-"),
-                ("Avg 1Y", format_pct(avg_perf) if avg_perf is not None else "-", delta_class(avg_perf)),
-                ("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "-"),
-                ("Total Cap", format_market_cap(total_mc) if total_mc else "-"),
-            ]), unsafe_allow_html=True)
+        st.markdown('<div class="results-zone">', unsafe_allow_html=True)
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "Overview", "Performance", "Sectors", "Correlation", "Charts", "Watchlist"
+        ])
 
-            st.markdown('<div class="results-zone">', unsafe_allow_html=True)
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "Overview", "Performance", "Sectors", "Correlation", "Charts", "Watchlist"
-            ])
+        with tab1:
+            sort_col1, sort_col2, sort_col3, export_col1, export_col2 = st.columns([2, 1, 1, 1, 1])
+            with sort_col1:
+                sort_col = st.selectbox("Order by", [
+                    "MarketCap", "Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                    "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                    "DebtToEquity", "CurrentRatio", "QuickRatio",
+                    "Year", "RSI", "Sharpe"
+                ], label_visibility="collapsed")
+            with sort_col2:
+                sort_asc = st.checkbox("Asc", value=False)
+            df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
         
-            with tab1:
-                sort_col1, sort_col2, sort_col3, export_col1, export_col2 = st.columns([2, 1, 1, 1, 1])
-                with sort_col1:
-                    sort_col = st.selectbox("Order by", [
-                        "MarketCap", "Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
-                        "ROE", "ROA", "ProfitMargin", "OperatingMargin",
-                        "DebtToEquity", "CurrentRatio", "QuickRatio",
-                        "Year", "RSI", "Sharpe"
-                    ], label_visibility="collapsed")
-                with sort_col2:
-                    sort_asc = st.checkbox("Asc", value=False)
-                df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
-            
-                df_display = format_dataframe(df_sorted)
-            
-                display_cols = ["Ticker", "Price", "MarketCap", 
-                              # Price Ratios
-                              "PE", "PB", "PS", "PEG", "EV_EBITDA",
-                              # Profitability
-                              "ROE", "ROA", "ProfitMargin", "OperatingMargin",
-                              # Leverage
-                              "DebtToEquity", "DebtToAssets", "InterestCoverage",
-                              # Liquidity
-                              "CurrentRatio", "QuickRatio",
-                              # Other
-                              "DividendYield", "Beta", "EPSGrowth", "RevenueGrowth",
-                              "RSI", "Sharpe", "Volatility",
-                              "Week", "Month", "Year", "Sector"]
-                available_cols = [col for col in display_cols if col in df_display.columns]
-                df_display = df_display[available_cols]
-            
-                st.dataframe(df_display, use_container_width=True, height=520, hide_index=True)
-            
-                with export_col1:
-                    csv = df.to_csv(index=False)
-                    st.download_button("Export CSV", csv, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-                with export_col2:
-                    try:
-                        import io
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                            df.to_excel(writer, index=False, sheet_name='Screener Results')
-                        excel_data = output.getvalue()
-                        st.download_button("Export XLS", excel_data, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    except Exception:
-                        pass
-            
-                wl_col1, wl_col2 = st.columns([4, 1])
-                with wl_col1:
-                    selected_tickers = st.multiselect("Add to watchlist", df_sorted["Ticker"].tolist(), label_visibility="collapsed")
-                with wl_col2:
-                    if st.button("Add", key="add_watchlist"):
-                        for ticker in selected_tickers:
-                            if ticker not in st.session_state.watchlist:
-                                st.session_state.watchlist.append(ticker)
-                        st.rerun()
+            df_display = format_dataframe(df_sorted)
         
-            with tab2:
-                # Performance heatmap
-                perf_cols = ["Week", "Month", "3Months", "6Months", "Year"]
-                perf_df = df[["Ticker"] + [col for col in perf_cols if col in df.columns]].set_index("Ticker")
-                perf_df = perf_df.replace([np.inf, -np.inf], np.nan)
-            
-                if not perf_df.empty:
-                    fig = px.imshow(
-                        perf_df.T,
-                        labels=dict(x="Stock", y="Period", color="Return (%)"),
-                        title="Performance Heatmap (%)",
-                        color_continuous_scale=[
-                            [0.0, THEME["negative"]],
-                            [0.5, THEME["neutral"]],
-                            [1.0, THEME["positive"]],
-                        ],
-                        aspect="auto"
-                    )
-                    apply_dark_plotly_layout(fig, height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-            
-                # Performance comparison
-                if len(perf_df.columns) > 0:
-                    fig = px.bar(perf_df.T, title="Performance Comparison", labels={"value": "Return (%)", "index": "Period"})
-                    apply_dark_plotly_layout(fig, height=600)
-                    fig.update_layout(showlegend=True)
-                    st.plotly_chart(fig, use_container_width=True)
+            display_cols = ["Ticker", "Price", "MarketCap", 
+                          # Price Ratios
+                          "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                          # Profitability
+                          "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                          # Leverage
+                          "DebtToEquity", "DebtToAssets", "InterestCoverage",
+                          # Liquidity
+                          "CurrentRatio", "QuickRatio",
+                          # Other
+                          "DividendYield", "Beta", "EPSGrowth", "RevenueGrowth",
+                          "RSI", "Sharpe", "Volatility",
+                          "Week", "Month", "Year", "Sector"]
+            available_cols = [col for col in display_cols if col in df_display.columns]
+            df_display = df_display[available_cols]
         
-            with tab3:
-                # Sector analysis
-                if "Sector" in df.columns:
-                    sector_stats = df.groupby("Sector").agg({
-                        "Ticker": "count",
-                        "Year": "mean",
-                        "PE": "mean",
-                        "MarketCap": "sum"
-                    }).round(2)
-                    sector_stats.columns = ["Count", "Avg Return (%)", "Avg P/E", "Total Market Cap"]
-                    sector_stats = sector_stats.sort_values("Count", ascending=False)
-                
-                    st.markdown('<div class="section-header">Sector Breakdown</div>', unsafe_allow_html=True)
-                    st.dataframe(sector_stats, use_container_width=True)
-                
-                    # Sector performance chart
-                    fig = px.bar(
-                        sector_stats.reset_index(),
-                        x="Sector",
-                        y="Avg Return (%)",
-                        title="Average Performance by Sector",
-                        color="Avg Return (%)",
-                        color_continuous_scale=[
-                            [0.0, THEME["negative"]],
-                            [0.5, THEME["neutral"]],
-                            [1.0, THEME["positive"]],
-                        ],
-                    )
-                    apply_dark_plotly_layout(fig, height=500)
-                    st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(df_display, use_container_width=True, height=520, hide_index=True)
         
-            with tab4:
-                # Correlation matrix
-                numeric_cols = ["Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
-                              "ROE", "ROA", "ProfitMargin", "OperatingMargin",
-                              "DebtToEquity", "CurrentRatio", "QuickRatio",
-                              "Beta", "RSI", "Year", "Month", "Week", "Sharpe"]
-                corr_cols = [col for col in numeric_cols if col in df.columns]
-                if len(corr_cols) > 1:
-                    corr_df = df[corr_cols].corr()
-                
-                    fig = px.imshow(
-                        corr_df,
-                        labels=dict(color="Correlation"),
-                        title="Correlation Matrix",
-                        color_continuous_scale=[
-                            [0.0, THEME["negative"]],
-                            [0.5, THEME["bg_surface_muted"]],
-                            [1.0, THEME["accent_blue"]],
-                        ],
-                        aspect="auto",
-                        text_auto=True
-                    )
-                    apply_dark_plotly_layout(fig, height=700)
-                    st.plotly_chart(fig, use_container_width=True)
+            with export_col1:
+                csv = df.to_csv(index=False)
+                st.download_button("Export CSV", csv, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            with export_col2:
+                try:
+                    import io
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df.to_excel(writer, index=False, sheet_name='Screener Results')
+                    excel_data = output.getvalue()
+                    st.download_button("Export XLS", excel_data, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                except Exception:
+                    pass
         
-            with tab5:
-                st.markdown('<div class="section-header">Stock Detail Charts</div>', unsafe_allow_html=True)
-            
-                if len(df) > 0:
-                    ticker_list = df["Ticker"].tolist()
-                    selected_ticker = st.selectbox("Select Stock:", ticker_list, key="chart_ticker")
-                
-                    if selected_ticker:
-                        chart_period = st.selectbox("Period:", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3, key="period")
-                    
-                        hist_data = fetch_historical_data(selected_ticker, period=chart_period)
-                    
-                        if hist_data is not None and not hist_data.empty:
-                            current_price = hist_data['Close'].iloc[-1]
-                            price_change = current_price - hist_data['Close'].iloc[-2] if len(hist_data) > 1 else 0
-                            price_change_pct = (price_change / hist_data['Close'].iloc[-2] * 100) if len(hist_data) > 1 and hist_data['Close'].iloc[-2] != 0 else 0
-                        
-                            col1, col2, col3, col4, col5 = st.columns(5)
-                            with col1:
-                                st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Price</div><div class="fv-kpi-val">${current_price:.2f}</div></div>', unsafe_allow_html=True)
-                            with col2:
-                                chg_cls = delta_class(price_change_pct)
-                                st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Change</div><div class="fv-kpi-val {chg_cls}">{format_pct(price_change_pct)}</div></div>', unsafe_allow_html=True)
-                            with col3:
-                                st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">High</div><div class="fv-kpi-val">${hist_data["High"].max():.2f}</div></div>', unsafe_allow_html=True)
-                            with col4:
-                                st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Low</div><div class="fv-kpi-val">${hist_data["Low"].min():.2f}</div></div>', unsafe_allow_html=True)
-                            with col5:
-                                st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Volume</div><div class="fv-kpi-val">{hist_data["Volume"].iloc[-1]:,.0f}</div></div>', unsafe_allow_html=True)
-                        
-                            st.markdown("---")
-                        
-                            # Indicator selection
-                            indicators = st.multiselect("Indicators:", ["SMA", "BB", "MACD"], default=["SMA", "MACD"])
-                        
-                            chart_fig = create_advanced_candlestick_chart(hist_data, selected_ticker, indicators)
-                            st.plotly_chart(chart_fig, use_container_width=True)
-                        
-                            # RSI chart
-                            rsi_fig = create_rsi_chart(hist_data, selected_ticker)
-                            if rsi_fig:
-                                st.plotly_chart(rsi_fig, use_container_width=True)
-                        else:
-                            st.warning(f"Could not fetch data for {selected_ticker}")
-        
-            with tab6:
-                st.markdown('<div class="section-header">Watchlist</div>', unsafe_allow_html=True)
-            
-                if st.session_state.watchlist:
-                    watchlist_df = df[df["Ticker"].isin(st.session_state.watchlist)] if st.session_state.screened_stocks is not None else pd.DataFrame()
-                
-                    if not watchlist_df.empty:
-                        watchlist_display = format_dataframe(watchlist_df)
-                        st.dataframe(watchlist_display, use_container_width=True, height=400)
-                    
-                        # Remove from watchlist
-                        remove_tickers = st.multiselect("Remove from Watchlist:", st.session_state.watchlist)
-                        if st.button("Remove Selected"):
-                            st.session_state.watchlist = [t for t in st.session_state.watchlist if t not in remove_tickers]
-                            st.rerun()
-                    else:
-                        st.info("No watchlist stocks found in current screening results.")
-                else:
-                    st.info("Your watchlist is empty. Add stocks from the Data Table tab.")
-            
-                if st.button("Clear Watchlist"):
-                    st.session_state.watchlist = []
+            wl_col1, wl_col2 = st.columns([4, 1])
+            with wl_col1:
+                selected_tickers = st.multiselect("Add to watchlist", df_sorted["Ticker"].tolist(), label_visibility="collapsed")
+            with wl_col2:
+                if st.button("Add", key="add_watchlist"):
+                    for ticker in selected_tickers:
+                        if ticker not in st.session_state.watchlist:
+                            st.session_state.watchlist.append(ticker)
                     st.rerun()
+        
+        with tab2:
+            # Performance heatmap
+            perf_cols = ["Week", "Month", "3Months", "6Months", "Year"]
+            perf_df = df[["Ticker"] + [col for col in perf_cols if col in df.columns]].set_index("Ticker")
+            perf_df = perf_df.replace([np.inf, -np.inf], np.nan)
+        
+            if not perf_df.empty:
+                fig = px.imshow(
+                    perf_df.T,
+                    labels=dict(x="Stock", y="Period", color="Return (%)"),
+                    title="Performance Heatmap (%)",
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["neutral"]],
+                        [1.0, THEME["positive"]],
+                    ],
+                    aspect="auto"
+                )
+                apply_dark_plotly_layout(fig, height=500)
+                st.plotly_chart(fig, use_container_width=True)
+        
+            # Performance comparison
+            if len(perf_df.columns) > 0:
+                fig = px.bar(perf_df.T, title="Performance Comparison", labels={"value": "Return (%)", "index": "Period"})
+                apply_dark_plotly_layout(fig, height=600)
+                fig.update_layout(showlegend=True)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with tab3:
+            # Sector analysis
+            if "Sector" in df.columns:
+                sector_stats = df.groupby("Sector").agg({
+                    "Ticker": "count",
+                    "Year": "mean",
+                    "PE": "mean",
+                    "MarketCap": "sum"
+                }).round(2)
+                sector_stats.columns = ["Count", "Avg Return (%)", "Avg P/E", "Total Market Cap"]
+                sector_stats = sector_stats.sort_values("Count", ascending=False)
+            
+                st.markdown('<div class="section-header">Sector Breakdown</div>', unsafe_allow_html=True)
+                st.dataframe(sector_stats, use_container_width=True)
+            
+                # Sector performance chart
+                fig = px.bar(
+                    sector_stats.reset_index(),
+                    x="Sector",
+                    y="Avg Return (%)",
+                    title="Average Performance by Sector",
+                    color="Avg Return (%)",
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["neutral"]],
+                        [1.0, THEME["positive"]],
+                    ],
+                )
+                apply_dark_plotly_layout(fig, height=500)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with tab4:
+            # Correlation matrix
+            numeric_cols = ["Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                          "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                          "DebtToEquity", "CurrentRatio", "QuickRatio",
+                          "Beta", "RSI", "Year", "Month", "Week", "Sharpe"]
+            corr_cols = [col for col in numeric_cols if col in df.columns]
+            if len(corr_cols) > 1:
+                corr_df = df[corr_cols].corr()
+            
+                fig = px.imshow(
+                    corr_df,
+                    labels=dict(color="Correlation"),
+                    title="Correlation Matrix",
+                    color_continuous_scale=[
+                        [0.0, THEME["negative"]],
+                        [0.5, THEME["bg_surface_muted"]],
+                        [1.0, THEME["accent_blue"]],
+                    ],
+                    aspect="auto",
+                    text_auto=True
+                )
+                apply_dark_plotly_layout(fig, height=700)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with tab5:
+            st.markdown('<div class="section-header">Stock Detail Charts</div>', unsafe_allow_html=True)
+        
+            if len(df) > 0:
+                ticker_list = df["Ticker"].tolist()
+                selected_ticker = st.selectbox("Select Stock:", ticker_list, key="chart_ticker")
+            
+                if selected_ticker:
+                    chart_period = st.selectbox("Period:", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3, key="period")
+                
+                    hist_data = fetch_historical_data(selected_ticker, period=chart_period)
+                
+                    if hist_data is not None and not hist_data.empty:
+                        current_price = hist_data['Close'].iloc[-1]
+                        price_change = current_price - hist_data['Close'].iloc[-2] if len(hist_data) > 1 else 0
+                        price_change_pct = (price_change / hist_data['Close'].iloc[-2] * 100) if len(hist_data) > 1 and hist_data['Close'].iloc[-2] != 0 else 0
+                    
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        with col1:
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Price</div><div class="fv-kpi-val">${current_price:.2f}</div></div>', unsafe_allow_html=True)
+                        with col2:
+                            chg_cls = delta_class(price_change_pct)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Change</div><div class="fv-kpi-val {chg_cls}">{format_pct(price_change_pct)}</div></div>', unsafe_allow_html=True)
+                        with col3:
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">High</div><div class="fv-kpi-val">${hist_data["High"].max():.2f}</div></div>', unsafe_allow_html=True)
+                        with col4:
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Low</div><div class="fv-kpi-val">${hist_data["Low"].min():.2f}</div></div>', unsafe_allow_html=True)
+                        with col5:
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Volume</div><div class="fv-kpi-val">{hist_data["Volume"].iloc[-1]:,.0f}</div></div>', unsafe_allow_html=True)
+                    
+                        st.markdown("---")
+                    
+                        # Indicator selection
+                        indicators = st.multiselect("Indicators:", ["SMA", "BB", "MACD"], default=["SMA", "MACD"])
+                    
+                        chart_fig = create_advanced_candlestick_chart(hist_data, selected_ticker, indicators)
+                        st.plotly_chart(chart_fig, use_container_width=True)
+                    
+                        # RSI chart
+                        rsi_fig = create_rsi_chart(hist_data, selected_ticker)
+                        if rsi_fig:
+                            st.plotly_chart(rsi_fig, use_container_width=True)
+                    else:
+                        st.warning(f"Could not fetch data for {selected_ticker}")
+        
+        with tab6:
+            st.markdown('<div class="section-header">Watchlist</div>', unsafe_allow_html=True)
+        
+            if st.session_state.watchlist:
+                watchlist_df = df[df["Ticker"].isin(st.session_state.watchlist)] if st.session_state.screened_stocks is not None else pd.DataFrame()
+            
+                if not watchlist_df.empty:
+                    watchlist_display = format_dataframe(watchlist_df)
+                    st.dataframe(watchlist_display, use_container_width=True, height=400)
+                
+                    # Remove from watchlist
+                    remove_tickers = st.multiselect("Remove from Watchlist:", st.session_state.watchlist)
+                    if st.button("Remove Selected"):
+                        st.session_state.watchlist = [t for t in st.session_state.watchlist if t not in remove_tickers]
+                        st.rerun()
+                else:
+                    st.info("No watchlist stocks found in current screening results.")
+            else:
+                st.info("Your watchlist is empty. Add stocks from the Data Table tab.")
+        
+            if st.button("Clear Watchlist"):
+                st.session_state.watchlist = []
+                st.rerun()
 
             st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.warning("No stocks match your criteria. Try adjusting your filters or check Filter debug above.")
-
+    elif st.session_state.screener_has_run:
+        st.warning("No stocks match your criteria. Try adjusting your filters or check Filter debug above.")
     else:
         st.markdown(
             '<div class="fv-empty">Configure filters above and click <strong>▼ Filter</strong> to load results.</div>',

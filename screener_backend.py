@@ -263,38 +263,46 @@ def _price_row_from_series(symbol: str, close: pd.Series, volume: Optional[pd.Se
     }
 
 
-def _read_disk_cache() -> Optional[pd.DataFrame]:
+def _read_disk_cache(max_age_days: int = 7) -> Optional[pd.DataFrame]:
     if not os.path.exists(CACHE_PATH):
         return None
     try:
         df = pd.read_csv(CACHE_PATH)
-        if "cache_date" not in df.columns:
+        if "cache_date" not in df.columns or df.empty:
             return None
-        if df["cache_date"].iloc[0] != str(date.today()):
+        cache_day = datetime.strptime(str(df["cache_date"].iloc[0]), "%Y-%m-%d").date()
+        if (date.today() - cache_day).days > max_age_days:
             return None
-        return df
+        return df.drop(columns=["cache_date"], errors="ignore")
     except Exception:
         return None
 
 
-def _write_disk_cache(df: pd.DataFrame) -> None:
+def _merge_disk_cache(new_rows: pd.DataFrame) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
-    out = df.copy()
-    out["cache_date"] = str(date.today())
-    out.to_csv(CACHE_PATH, index=False)
+    existing = _read_disk_cache(max_age_days=365) or pd.DataFrame()
+    if not existing.empty and "ticker" in existing.columns:
+        combined = pd.concat([existing, new_rows], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["ticker"], keep="last")
+    else:
+        combined = new_rows.copy()
+    combined["cache_date"] = str(date.today())
+    combined.to_csv(CACHE_PATH, index=False)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_fundamentals_cached(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Fetch fundamentals per ticker with in-memory cache; supplements disk cache."""
+    """Fetch fundamentals per ticker with in-memory and incremental disk cache."""
     cached = _read_disk_cache()
-    if cached is not None:
-        cached_tickers = set(cached["ticker"].astype(str))
-        if set(tickers).issubset(cached_tickers):
-            return cached[cached["ticker"].isin(tickers)].copy()
+    cached_by_ticker: dict[str, dict] = {}
+    if cached is not None and not cached.empty:
+        for _, row in cached.iterrows():
+            cached_by_ticker[str(row["ticker"])] = row.to_dict()
 
+    to_fetch = [sym for sym in tickers if sym not in cached_by_ticker]
     rows = []
-    for sym in tickers:
+
+    for sym in to_fetch:
         row = {"ticker": sym}
         try:
             t = yf.Ticker(sym)
@@ -344,10 +352,18 @@ def fetch_fundamentals_cached(tickers: tuple[str, ...]) -> pd.DataFrame:
             pass
         rows.append(row)
 
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        _write_disk_cache(df)
-    return df
+    if rows:
+        _merge_disk_cache(pd.DataFrame(rows))
+
+    result_rows = []
+    for sym in tickers:
+        if sym in cached_by_ticker:
+            result_rows.append(cached_by_ticker[sym])
+        else:
+            fetched = next((r for r in rows if r.get("ticker") == sym), {"ticker": sym})
+            result_rows.append(fetched)
+
+    return pd.DataFrame(result_rows)
 
 
 def normalize_stock_dataframe(

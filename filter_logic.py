@@ -69,10 +69,12 @@ def _num(value: Any) -> Optional[float]:
 
 
 def _range_active(name: str, lo: float, hi: float, tol: float = 0.5) -> bool:
-    """False when slider matches any known neutral/default range (filter not applied)."""
-    ranges = NEUTRAL_RANGES.get(name, [DEFAULT_BOUNDS[name]])
-    for dlo, dhi in ranges:
-        if abs(lo - dlo) <= tol and abs(hi - dhi) <= tol:
+    """False when the slider still covers a full neutral/default range."""
+    dlo, dhi = DEFAULT_BOUNDS[name]
+    if lo <= dlo + tol and hi >= dhi - tol:
+        return False
+    for ndlo, ndhi in NEUTRAL_RANGES.get(name, [(dlo, dhi)]):
+        if lo <= ndlo + tol and hi >= ndhi - tol:
             return False
     return True
 
@@ -201,19 +203,19 @@ def passes_filters(stock: Optional[dict], cfg: dict) -> Tuple[bool, Optional[str
     if stock is None:
         return False, "fetch_failed"
 
-    def range_filter(field: str, category: str) -> Tuple[bool, Optional[str]]:
+    def range_filter(field: str, category: str, require_value: bool = False) -> Tuple[bool, Optional[str]]:
         f = cfg[field]
         if not f["active"]:
             return True, None
         val = _num(stock.get(_STOCK_KEYS[field]))
         if val is None:
-            return False, category
+            return (False, category) if require_value else (True, None)
         if val < f["min"] or val > f["max"]:
             return False, category
         return True, None
 
-    # Price
-    ok, reason = range_filter("price", "price")
+    # Price (require value when filter active)
+    ok, reason = range_filter("price", "price", require_value=True)
     if not ok:
         return False, reason
 
@@ -243,7 +245,7 @@ def passes_filters(stock: Optional[dict], cfg: dict) -> Tuple[bool, Optional[str
     for field in ("pe", "pb", "ps", "ev_ebitda", "peg", "roe", "roa", "profit_margin",
                   "operating_margin", "debt_to_equity", "debt_to_assets", "equity_ratio",
                   "interest_coverage", "current_ratio", "quick_ratio", "beta", "rsi"):
-        ok, reason = range_filter(field, field)
+        ok, reason = range_filter(field, field, require_value=False)
         if not ok:
             return False, reason
 
@@ -346,14 +348,18 @@ def apply_screener_filters(df, cfg: dict):
             reasons.loc[newly_failed & reasons.isna()] = category
         mask &= ~fail_mask
 
-    def _apply_range(category: str, col, f: dict):
+    def _apply_range(category: str, col, f: dict, require_value: bool = False):
         if not f.get("active"):
             return
         col = pd.to_numeric(col, errors="coerce")
-        fail = col.isna() | (col < f["min"]) | (col > f["max"])
+        out_of_range = (col < f["min"]) | (col > f["max"])
+        if require_value:
+            fail = col.isna() | out_of_range
+        else:
+            fail = col.notna() & out_of_range
         _reject(category, fail)
 
-    _apply_range("price", _df_col(df, "price", "Price"), cfg["price"])
+    _apply_range("price", _df_col(df, "price", "Price"), cfg["price"], require_value=True)
 
     if cfg["volume"]["active"]:
         vol = _df_col(df, "volume", "Volume", "average_volume", "AvgVolume")
@@ -399,7 +405,7 @@ def apply_screener_filters(df, cfg: dict):
             "beta": ("beta", "Beta"),
             "rsi": ("rsi", "RSI"),
         }
-        _apply_range(field, _df_col(df, *key_map[field]), cfg[field])
+        _apply_range(field, _df_col(df, *key_map[field]), cfg[field], require_value=False)
 
     if cfg["dividend"]["active"]:
         div = _df_col(df, "dividend_yield", "DividendYield")
