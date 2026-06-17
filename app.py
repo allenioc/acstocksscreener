@@ -21,13 +21,8 @@ from theme import (
     THEME,
 )
 from universe import get_stock_universe
-from nav_pages import (
-    render_charts_page,
-    render_maps_page,
-    render_groups_page,
-    render_insider_page,
-    render_news_page,
-)
+from filter_logic import build_filter_config, passes_filters, empty_debug_counts, DEFAULT_BOUNDS
+from nav_pages import render_charts_page
 warnings.filterwarnings('ignore')
 
 # =============================
@@ -405,200 +400,6 @@ def fetch_stock(symbol):
         return None
 
 # =============================
-# FILTER LOGIC
-# =============================
-def passes_filters(s):
-    if s is None:
-        return False
-    
-    # Price filter
-    if not (price_min <= s.get("Price", 0) <= price_max):
-        return False
-    
-    # Volume filter - only filter if volume data exists
-    volume = s.get("Volume")
-    if volume is not None and volume > 0 and volume < min_volume:
-        return False
-    
-    # Market cap filter - only apply if "Any" is not selected and market cap exists
-    mc = s.get("MarketCap")
-    if market_cap != "Any" and mc is not None:
-        if market_cap == "Mega (>$200B)" and mc < 200e9: 
-            return False
-        if market_cap == "Large ($10B-$200B)" and not (10e9 <= mc < 200e9): 
-            return False
-        if market_cap == "Mid ($2B-$10B)" and not (2e9 <= mc < 10e9): 
-            return False
-        if market_cap == "Small ($300M-$2B)" and not (300e6 <= mc < 2e9): 
-            return False
-        if market_cap == "Micro (<$300M)" and mc >= 300e6: 
-            return False
-    
-    # P/E filter - only apply if data exists (including 0)
-    pe = s.get("PE")
-    if pe is not None:
-        if pe < pe_min or pe > pe_max:
-            return False
-    
-    # P/B filter
-    pb = s.get("PB")
-    if pb is not None:
-        if pb < pb_min or pb > pb_max:
-            return False
-    
-    # P/S filter
-    ps = s.get("PS")
-    if ps is not None:
-        if ps < ps_min or ps > ps_max:
-            return False
-    
-    # EV/EBITDA filter
-    ev_ebitda = s.get("EV_EBITDA")
-    if ev_ebitda is not None:
-        if ev_ebitda < ev_ebitda_min or ev_ebitda > ev_ebitda_max:
-            return False
-    
-    # PEG filter
-    peg = s.get("PEG")
-    if peg is not None:
-        if peg < peg_min or peg > peg_max:
-            return False
-    
-    # Dividend yield - always has a value (defaults to 0)
-    div_yield = s.get("DividendYield", 0)
-    if div_yield < min_dividend:
-        return False
-    
-    # ROE filter
-    roe = s.get("ROE")
-    if roe is not None:
-        if roe < roe_min or roe > roe_max:
-            return False
-    
-    # ROA filter
-    roa = s.get("ROA")
-    if roa is not None:
-        if roa < roa_min or roa > roa_max:
-            return False
-    
-    # Profit Margin filter
-    profit_margin = s.get("ProfitMargin")
-    if profit_margin is not None:
-        if profit_margin < profit_margin_min or profit_margin > profit_margin_max:
-            return False
-    
-    # Operating Margin filter
-    operating_margin = s.get("OperatingMargin")
-    if operating_margin is not None:
-        if operating_margin < operating_margin_min or operating_margin > operating_margin_max:
-            return False
-    
-    # Debt to Equity filter
-    dte = s.get("DebtToEquity")
-    if dte is not None:
-        if dte < debt_to_equity_min or dte > debt_to_equity_max:
-            return False
-    
-    # Debt to Assets filter
-    dta = s.get("DebtToAssets")
-    if dta is not None:
-        if dta < debt_to_assets_min or dta > debt_to_assets_max:
-            return False
-    
-    # Equity Ratio filter
-    eq_ratio = s.get("EquityRatio")
-    if eq_ratio is not None:
-        if eq_ratio < equity_ratio_min or eq_ratio > equity_ratio_max:
-            return False
-    
-    # Interest Coverage filter
-    int_cov = s.get("InterestCoverage")
-    if int_cov is not None:
-        if int_cov < interest_coverage_min or int_cov > interest_coverage_max:
-            return False
-    
-    # Current Ratio filter
-    curr_ratio = s.get("CurrentRatio")
-    if curr_ratio is not None:
-        if curr_ratio < current_ratio_min or curr_ratio > current_ratio_max:
-            return False
-    
-    # Quick Ratio filter
-    quick_ratio_val = s.get("QuickRatio")
-    if quick_ratio_val is not None:
-        if quick_ratio_val < quick_ratio_min or quick_ratio_val > quick_ratio_max:
-            return False
-    
-    # Beta filter
-    beta = s.get("Beta")
-    if beta is not None:
-        if beta < beta_min or beta > beta_max:
-            return False
-    
-    # EPS growth filter - only filter if data exists
-    eps_growth = s.get("EPSGrowth")
-    if eps_growth is not None and eps_growth < eps_growth_min:
-        return False
-    
-    # Revenue growth filter - only filter if data exists
-    revenue_growth = s.get("RevenueGrowth")
-    if revenue_growth is not None and revenue_growth < revenue_growth_min:
-        return False
-    
-    # Performance filter
-    if perf_period != "Any":
-        period_map = {
-            "1 Week": "Week",
-            "1 Month": "Month",
-            "3 Months": "3Months",
-            "6 Months": "6Months",
-            "1 Year": "Year"
-        }
-        val = s.get(period_map[perf_period])
-        if val is not None:
-            if val < perf_min or val > perf_max:
-                return False
-    
-    # RSI filter - only apply if data exists
-    rsi = s.get("RSI")
-    if rsi is not None:
-        if rsi < rsi_min or rsi > rsi_max:
-            return False
-    
-    # SMA filters - only check if checkbox is enabled
-    if above_sma20:
-        sma20 = s.get("SMA20")
-        if sma20 is None or s["Price"] < sma20:
-            return False
-    if above_sma50:
-        sma50 = s.get("SMA50")
-        if sma50 is None or s["Price"] < sma50:
-            return False
-    if above_sma200:
-        sma200 = s.get("SMA200")
-        if sma200 is None or s["Price"] < sma200:
-            return False
-    
-    # MACD filter - only check if checkbox is enabled
-    if macd_bullish:
-        if not s.get("MACD_Bullish", False):
-            return False
-    
-    # Bollinger Band filter - only apply if not "Any"
-    if bb_position != "Any":
-        bb_pos = s.get("BB_Position")
-        if bb_pos is not None and bb_pos != bb_position:
-            return False
-    
-    # Sector filter - only apply if "Any" is not in the selection
-    if "Any" not in sector_filter:
-        sector = s.get("Sector")
-        if sector is None or sector not in sector_filter:
-            return False
-    
-    return True
-
-# =============================
 # CHART FUNCTIONS
 # =============================
 def create_advanced_candlestick_chart(hist, symbol, indicators=['SMA', 'BB', 'MACD']):
@@ -779,18 +580,6 @@ current_page = render_top_nav()
 if current_page == "Charts":
     render_charts_page(fetch_historical_data, create_advanced_candlestick_chart, create_rsi_chart)
 
-elif current_page == "Maps":
-    render_maps_page()
-
-elif current_page == "Groups":
-    render_groups_page()
-
-elif current_page == "Insider":
-    render_insider_page()
-
-elif current_page == "News":
-    render_news_page()
-
 elif current_page == "Screener":
     st.markdown(filter_panel_open(), unsafe_allow_html=True)
     st.markdown('<div class="filter-zone">', unsafe_allow_html=True)
@@ -820,45 +609,45 @@ elif current_page == "Screener":
     with ftab2:
         r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
         with r2c1:
-            pe_min, pe_max = st.slider("P/E", 0.0, 100.0, (0.0, 100.0), step=0.1)
+            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v2")
         with r2c2:
-            pb_min, pb_max = st.slider("P/B", 0.0, 20.0, (0.0, 20.0), step=0.1)
+            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v2")
         with r2c3:
-            ps_min, ps_max = st.slider("P/S", 0.0, 50.0, (0.0, 50.0), step=0.1)
+            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v2")
         with r2c4:
-            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", 0.0, 50.0, (0.0, 50.0), step=0.1)
+            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v2")
         with r2c5:
-            peg_min, peg_max = st.slider("PEG", 0.0, 10.0, (0.0, 10.0), step=0.1)
+            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v2")
 
         r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
         with r2b1:
             min_dividend = st.slider("Div Yield %", 0.0, 10.0, 0.0, step=0.1)
         with r2b2:
-            roe_min, roe_max = st.slider("ROE %", -50.0, 100.0, (-50.0, 100.0), step=0.1)
+            roe_min, roe_max = st.slider("ROE %", DEFAULT_BOUNDS["roe"][0], DEFAULT_BOUNDS["roe"][1], DEFAULT_BOUNDS["roe"], step=0.1)
         with r2b3:
-            roa_min, roa_max = st.slider("ROA %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+            roa_min, roa_max = st.slider("ROA %", DEFAULT_BOUNDS["roa"][0], DEFAULT_BOUNDS["roa"][1], DEFAULT_BOUNDS["roa"], step=0.1)
         with r2b4:
-            profit_margin_min, profit_margin_max = st.slider("Profit Margin %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+            profit_margin_min, profit_margin_max = st.slider("Profit Margin %", DEFAULT_BOUNDS["profit_margin"][0], DEFAULT_BOUNDS["profit_margin"][1], DEFAULT_BOUNDS["profit_margin"], step=0.1)
         with r2b5:
-            operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+            operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", DEFAULT_BOUNDS["operating_margin"][0], DEFAULT_BOUNDS["operating_margin"][1], DEFAULT_BOUNDS["operating_margin"], step=0.1)
 
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
-            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", 0.0, 10.0, (0.0, 10.0), step=0.1)
+            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v2")
         with r2c2b:
-            debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", 0.0, 100.0, (0.0, 100.0), step=0.1)
+            debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", DEFAULT_BOUNDS["debt_to_assets"][0], DEFAULT_BOUNDS["debt_to_assets"][1], DEFAULT_BOUNDS["debt_to_assets"], step=0.1)
         with r2c3b:
-            equity_ratio_min, equity_ratio_max = st.slider("Equity Ratio %", 0.0, 100.0, (0.0, 100.0), step=0.1)
+            equity_ratio_min, equity_ratio_max = st.slider("Equity Ratio %", DEFAULT_BOUNDS["equity_ratio"][0], DEFAULT_BOUNDS["equity_ratio"][1], DEFAULT_BOUNDS["equity_ratio"], step=0.1)
         with r2c4b:
-            interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", 0.0, 50.0, (0.0, 50.0), step=0.1)
+            interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", DEFAULT_BOUNDS["interest_coverage"][0], DEFAULT_BOUNDS["interest_coverage"][1], DEFAULT_BOUNDS["interest_coverage"], step=0.1)
         with r2c5b:
-            current_ratio_min, current_ratio_max = st.slider("Current Ratio", 0.0, 10.0, (0.0, 10.0), step=0.1)
+            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v2")
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", 0.0, 10.0, (0.0, 10.0), step=0.1)
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v2")
         with r2d2:
-            beta_min, beta_max = st.slider("Beta", 0.0, 5.0, (0.0, 5.0), step=0.1)
+            beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
         with r2d3:
             eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0)
         with r2d4:
@@ -887,7 +676,7 @@ elif current_page == "Screener":
         perf_min, perf_max = -100.0, 300.0
         if perf_period != "Any":
             with r4c2:
-                perf_min = st.slider("Min Perf %", -100.0, 300.0, -50.0, step=1.0)
+                perf_min = st.slider("Min Perf %", -100.0, 300.0, -100.0, step=1.0)
             with r4c3:
                 perf_max = st.slider("Max Perf %", -100.0, 300.0, 300.0, step=1.0)
 
@@ -904,7 +693,32 @@ elif current_page == "Screener":
     st.markdown(filter_panel_close(), unsafe_allow_html=True)
 
     if run_button:
+        filter_cfg = build_filter_config(
+            price_min=price_min, price_max=price_max,
+            min_volume=min_volume, market_cap=market_cap, sector_filter=sector_filter,
+            pe_min=pe_min, pe_max=pe_max, pb_min=pb_min, pb_max=pb_max,
+            ps_min=ps_min, ps_max=ps_max,
+            ev_ebitda_min=ev_ebitda_min, ev_ebitda_max=ev_ebitda_max,
+            peg_min=peg_min, peg_max=peg_max, min_dividend=min_dividend,
+            roe_min=roe_min, roe_max=roe_max, roa_min=roa_min, roa_max=roa_max,
+            profit_margin_min=profit_margin_min, profit_margin_max=profit_margin_max,
+            operating_margin_min=operating_margin_min, operating_margin_max=operating_margin_max,
+            debt_to_equity_min=debt_to_equity_min, debt_to_equity_max=debt_to_equity_max,
+            debt_to_assets_min=debt_to_assets_min, debt_to_assets_max=debt_to_assets_max,
+            equity_ratio_min=equity_ratio_min, equity_ratio_max=equity_ratio_max,
+            interest_coverage_min=interest_coverage_min, interest_coverage_max=interest_coverage_max,
+            current_ratio_min=current_ratio_min, current_ratio_max=current_ratio_max,
+            quick_ratio_min=quick_ratio_min, quick_ratio_max=quick_ratio_max,
+            beta_min=beta_min, beta_max=beta_max,
+            eps_growth_min=eps_growth_min, revenue_growth_min=revenue_growth_min,
+            perf_period=perf_period, perf_min=perf_min, perf_max=perf_max,
+            rsi_min=rsi_min, rsi_max=rsi_max,
+            above_sma20=above_sma20, above_sma50=above_sma50, above_sma200=above_sma200,
+            macd_bullish=macd_bullish, bb_position=bb_position,
+        )
         universe = get_stock_universe(markets)
+        debug = empty_debug_counts()
+        debug["scanned"] = len(universe)
     
         progress_container = st.container()
         with progress_container:
@@ -913,7 +727,6 @@ elif current_page == "Screener":
             status_text = st.empty()
     
         results = []
-        errors = 0
     
         for i, sym in enumerate(universe):
             progress = (i + 1) / len(universe)
@@ -922,15 +735,42 @@ elif current_page == "Screener":
         
             try:
                 data = fetch_stock(sym)
-                if passes_filters(data):
+            except Exception:
+                data = None
+
+            if data is None:
+                debug["fetch_failed"] += 1
+            else:
+                debug["fetched"] += 1
+                ok, reason = passes_filters(data, filter_cfg)
+                if ok:
                     results.append(data)
-            except Exception as e:
-                errors += 1
+                    debug["matched"] += 1
+                elif reason:
+                    debug[reason] = debug.get(reason, 0) + 1
         
             time.sleep(0.02)
     
         progress_bar.empty()
         status_text.empty()
+        st.session_state.last_filter_debug = debug
+
+        with st.expander("Filter debug", expanded=len(results) == 0):
+            st.write(f"**Total symbols scanned:** {debug['scanned']}")
+            st.write(f"**Successfully fetched:** {debug['fetched']}")
+            st.write(f"**Fetch failures:** {debug['fetch_failed']}")
+            st.write(f"**Final matches:** {debug['matched']}")
+            st.markdown("**Removed by filter category:**")
+            filter_rows = []
+            for key, val in debug.items():
+                if key in ("scanned", "fetched", "matched", "fetch_failed"):
+                    continue
+                if val:
+                    filter_rows.append({"Filter": key, "Removed": val})
+            if filter_rows:
+                st.dataframe(pd.DataFrame(filter_rows), hide_index=True, use_container_width=True)
+            else:
+                st.caption("No filter rejections (aside from fetch failures).")
     
         if results:
             df = pd.DataFrame(results)
@@ -1171,9 +1011,7 @@ elif current_page == "Screener":
 
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("No stocks match your criteria. Try adjusting your filters.")
-            if errors > 0:
-                st.info(f"{errors} stocks could not be processed.")
+            st.warning("No stocks match your criteria. Try adjusting your filters or check Filter debug above.")
 
     else:
         st.markdown(

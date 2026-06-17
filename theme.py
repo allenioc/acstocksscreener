@@ -541,12 +541,12 @@ def get_global_css() -> str:
     """
 
 
-NAV_PAGES = ["Screener", "Charts", "Maps", "Groups", "Insider", "News"]
+NAV_PAGES = ["Screener", "Charts"]
 
 
 def render_top_nav() -> str:
     """Render working Streamlit navigation and return the active page."""
-    if "nav_page" not in st.session_state:
+    if "nav_page" not in st.session_state or st.session_state.nav_page not in NAV_PAGES:
         st.session_state.nav_page = "Screener"
 
     st.markdown('<div class="fv-nav-wrapper">', unsafe_allow_html=True)
