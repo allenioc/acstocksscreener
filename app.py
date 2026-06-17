@@ -10,11 +10,13 @@ from plotly.subplots import make_subplots
 import warnings
 from theme import (
     get_global_css,
-    terminal_header,
-    status_strip,
-    kpi_card,
+    finviz_nav,
+    filter_panel_open,
+    filter_panel_close,
+    results_bar,
+    kpi_strip,
     format_pct,
-    delta_type_for_value,
+    delta_class,
     apply_dark_plotly_layout,
     THEME,
 )
@@ -24,9 +26,9 @@ warnings.filterwarnings('ignore')
 # PAGE CONFIG
 # =============================
 st.set_page_config(
-    page_title="Stock Screener Terminal",
+    page_title="Stock Screener",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # =============================
@@ -43,218 +45,121 @@ if 'screened_stocks' not in st.session_state:
     st.session_state.screened_stocks = None
 
 # =============================
-# HEADER
+# FINVIZ NAV + FILTER PANEL
 # =============================
-st.markdown(
-    terminal_header("Stock Screener Terminal", "US & Canadian Market Screening"),
-    unsafe_allow_html=True,
-)
+st.markdown(finviz_nav("screener"), unsafe_allow_html=True)
+st.markdown(filter_panel_open(), unsafe_allow_html=True)
 
-# =============================
-# SIDEBAR FILTERS
-# =============================
-with st.sidebar:
-    st.markdown('<div class="filter-group-label">Screening Filters</div>', unsafe_allow_html=True)
-    
-    # Market Selection
-    markets = st.multiselect(
-        "Markets",
-        ["US", "Canada"],
-        default=["US"]
-    )
-    
-    # Market Cap Filter
-    market_cap = st.selectbox(
-        "Market Cap",
-        ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"]
-    )
-    
-    st.markdown("---")
-    
-    # Price Filters
-    st.markdown('<div class="filter-group-label">Price</div>', unsafe_allow_html=True)
-    price_min, price_max = st.slider(
-        "Price Range ($)",
-        0.0, 5000.0, (0.0, 5000.0),
-        step=0.1
-    )
-    
-    # Volume Filter
-    st.markdown('<div class="filter-group-label">Volume & Liquidity</div>', unsafe_allow_html=True)
-    min_volume = st.selectbox(
-        "Min Avg Volume",
-        [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000],
-        index=0
-    )
-    
-    st.markdown("---")
-    
-    # Fundamental Filters
-    st.markdown('<div class="filter-group-label">Price Ratios</div>', unsafe_allow_html=True)
-    pe_min, pe_max = st.slider(
-        "P/E Ratio",
-        0.0, 100.0, (0.0, 100.0),
-        step=0.1
-    )
-    
-    pb_min, pb_max = st.slider(
-        "P/B Ratio",
-        0.0, 20.0, (0.0, 20.0),
-        step=0.1
-    )
-    
-    ps_min, ps_max = st.slider(
-        "P/S Ratio",
-        0.0, 50.0, (0.0, 50.0),
-        step=0.1
-    )
-    
-    ev_ebitda_min, ev_ebitda_max = st.slider(
-        "EV/EBITDA",
-        0.0, 50.0, (0.0, 50.0),
-        step=0.1
-    )
-    
-    peg_min, peg_max = st.slider(
-        "PEG Ratio",
-        0.0, 10.0, (0.0, 10.0),
-        step=0.1
-    )
-    
-    min_dividend = st.slider("Min Dividend Yield (%)", 0.0, 10.0, 0.0, step=0.1)
-    
-    st.markdown("---")
-    
-    st.markdown('<div class="filter-group-label">Profitability Ratios</div>', unsafe_allow_html=True)
-    roe_min, roe_max = st.slider(
-        "ROE (%)",
-        -50.0, 100.0, (-50.0, 100.0),
-        step=0.1
-    )
-    
-    roa_min, roa_max = st.slider(
-        "ROA (%)",
-        -50.0, 50.0, (-50.0, 50.0),
-        step=0.1
-    )
-    
-    profit_margin_min, profit_margin_max = st.slider(
-        "Profit Margin (%)",
-        -50.0, 50.0, (-50.0, 50.0),
-        step=0.1
-    )
-    
-    operating_margin_min, operating_margin_max = st.slider(
-        "Operating Margin (%)",
-        -50.0, 50.0, (-50.0, 50.0),
-        step=0.1
-    )
-    
-    st.markdown("---")
-    
-    st.markdown('<div class="filter-group-label">Leverage Ratios</div>', unsafe_allow_html=True)
-    debt_to_equity_min, debt_to_equity_max = st.slider(
-        "Debt to Equity",
-        0.0, 10.0, (0.0, 10.0),
-        step=0.1
-    )
-    
-    debt_to_assets_min, debt_to_assets_max = st.slider(
-        "Debt to Assets (%)",
-        0.0, 100.0, (0.0, 100.0),
-        step=0.1
-    )
-    
-    equity_ratio_min, equity_ratio_max = st.slider(
-        "Equity Ratio (%)",
-        0.0, 100.0, (0.0, 100.0),
-        step=0.1
-    )
-    
-    interest_coverage_min, interest_coverage_max = st.slider(
-        "Interest Coverage",
-        0.0, 50.0, (0.0, 50.0),
-        step=0.1
-    )
-    
-    st.markdown("---")
-    
-    st.markdown('<div class="filter-group-label">Liquidity Ratios</div>', unsafe_allow_html=True)
-    current_ratio_min, current_ratio_max = st.slider(
-        "Current Ratio",
-        0.0, 10.0, (0.0, 10.0),
-        step=0.1
-    )
-    
-    quick_ratio_min, quick_ratio_max = st.slider(
-        "Quick Ratio",
-        0.0, 10.0, (0.0, 10.0),
-        step=0.1
-    )
-    
-    st.markdown("---")
-    
-    st.markdown('<div class="filter-group-label">Other Metrics</div>', unsafe_allow_html=True)
-    beta_min, beta_max = st.slider(
-        "Beta",
-        0.0, 5.0, (0.0, 5.0),
-        step=0.1
-    )
-    
-    eps_growth_min = st.number_input("Min EPS Growth (YoY %)", value=-100.0, step=1.0)
-    revenue_growth_min = st.number_input("Min Revenue Growth (YoY %)", value=-100.0, step=1.0)
-    
-    st.markdown("---")
-    
-    # Performance Filters
-    st.markdown('<div class="filter-group-label">Performance</div>', unsafe_allow_html=True)
-    perf_period = st.selectbox(
-        "Performance Period",
-        ["Any", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"]
-    )
-    
+st.markdown('<div class="filter-zone">', unsafe_allow_html=True)
+
+ftab1, ftab2, ftab3, ftab4 = st.tabs(["Descriptive", "Fundamental", "Technical", "Performance"])
+
+with ftab1:
+    r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns(5)
+    with r1c1:
+        markets = st.multiselect("Exchange", ["US", "Canada"], default=["US"], label_visibility="visible")
+    with r1c2:
+        market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"])
+    with r1c3:
+        sector_filter = st.multiselect(
+            "Sector",
+            ["Any", "Technology", "Healthcare", "Financial Services",
+             "Consumer Cyclical", "Consumer Defensive", "Industrials",
+             "Energy", "Basic Materials", "Communication Services",
+             "Utilities", "Real Estate"],
+            default=["Any"],
+        )
+    with r1c4:
+        price_min, price_max = st.slider("Price ($)", 0.0, 5000.0, (0.0, 5000.0), step=0.1)
+    with r1c5:
+        min_volume = st.selectbox("Avg Volume", [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000], index=0)
+
+with ftab2:
+    r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
+    with r2c1:
+        pe_min, pe_max = st.slider("P/E", 0.0, 100.0, (0.0, 100.0), step=0.1)
+    with r2c2:
+        pb_min, pb_max = st.slider("P/B", 0.0, 20.0, (0.0, 20.0), step=0.1)
+    with r2c3:
+        ps_min, ps_max = st.slider("P/S", 0.0, 50.0, (0.0, 50.0), step=0.1)
+    with r2c4:
+        ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", 0.0, 50.0, (0.0, 50.0), step=0.1)
+    with r2c5:
+        peg_min, peg_max = st.slider("PEG", 0.0, 10.0, (0.0, 10.0), step=0.1)
+
+    r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
+    with r2b1:
+        min_dividend = st.slider("Div Yield %", 0.0, 10.0, 0.0, step=0.1)
+    with r2b2:
+        roe_min, roe_max = st.slider("ROE %", -50.0, 100.0, (-50.0, 100.0), step=0.1)
+    with r2b3:
+        roa_min, roa_max = st.slider("ROA %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+    with r2b4:
+        profit_margin_min, profit_margin_max = st.slider("Profit Margin %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+    with r2b5:
+        operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", -50.0, 50.0, (-50.0, 50.0), step=0.1)
+
+    r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
+    with r2c1b:
+        debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", 0.0, 10.0, (0.0, 10.0), step=0.1)
+    with r2c2b:
+        debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", 0.0, 100.0, (0.0, 100.0), step=0.1)
+    with r2c3b:
+        equity_ratio_min, equity_ratio_max = st.slider("Equity Ratio %", 0.0, 100.0, (0.0, 100.0), step=0.1)
+    with r2c4b:
+        interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", 0.0, 50.0, (0.0, 50.0), step=0.1)
+    with r2c5b:
+        current_ratio_min, current_ratio_max = st.slider("Current Ratio", 0.0, 10.0, (0.0, 10.0), step=0.1)
+
+    r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
+    with r2d1:
+        quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", 0.0, 10.0, (0.0, 10.0), step=0.1)
+    with r2d2:
+        beta_min, beta_max = st.slider("Beta", 0.0, 5.0, (0.0, 5.0), step=0.1)
+    with r2d3:
+        eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0)
+    with r2d4:
+        revenue_growth_min = st.number_input("Rev Growth %", value=-100.0, step=1.0)
+
+with ftab3:
+    r3c1, r3c2, r3c3, r3c4, r3c5 = st.columns(5)
+    with r3c1:
+        rsi_min, rsi_max = st.slider("RSI (14)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+    with r3c2:
+        bb_position = st.selectbox("Bollinger Bands", ["Any", "Above Upper", "Below Lower", "Between Bands"])
+    with r3c3:
+        above_sma20 = st.checkbox("Above SMA 20")
+    with r3c4:
+        above_sma50 = st.checkbox("Above SMA 50")
+    with r3c5:
+        above_sma200 = st.checkbox("Above SMA 200")
+    r3b1, r3b2, r3b3, r3b4, r3b5 = st.columns(5)
+    with r3b1:
+        macd_bullish = st.checkbox("MACD Bullish")
+
+with ftab4:
+    r4c1, r4c2, r4c3, r4c4, r4c5 = st.columns(5)
+    with r4c1:
+        perf_period = st.selectbox("Perf Period", ["Any", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"])
     perf_min, perf_max = -100.0, 300.0
     if perf_period != "Any":
-        perf_min = st.slider("Min Performance (%)", -100.0, 300.0, -50.0, step=1.0)
-        perf_max = st.slider("Max Performance (%)", -100.0, 300.0, 300.0, step=1.0)
-    
-    st.markdown("---")
-    
-    # Technical Filters
-    st.markdown('<div class="filter-group-label">Technical Indicators</div>', unsafe_allow_html=True)
-    rsi_min, rsi_max = st.slider(
-        "RSI (14)",
-        0.0, 100.0, (0.0, 100.0),
-        step=1.0
-    )
-    
-    above_sma20 = st.checkbox("Above SMA 20")
-    above_sma50 = st.checkbox("Above SMA 50")
-    above_sma200 = st.checkbox("Above SMA 200")
-    
-    macd_bullish = st.checkbox("MACD Bullish Signal")
-    bb_position = st.selectbox("Bollinger Band Position", ["Any", "Above Upper", "Below Lower", "Between Bands"])
-    
-    st.markdown("---")
-    
-    # Sector Filter
-    st.markdown('<div class="filter-group-label">Sectors & Industries</div>', unsafe_allow_html=True)
-    sector_filter = st.multiselect(
-        "Sectors",
-        ["Any", "Technology", "Healthcare", "Financial Services",
-         "Consumer Cyclical", "Consumer Defensive", "Industrials", 
-         "Energy", "Basic Materials", "Communication Services",
-         "Utilities", "Real Estate"],
-        default=["Any"]
-    )
-    
-    st.markdown("---")
-    
-    # Run Button
-    run_button = st.button("Run Screener", use_container_width=True, type="primary")
-    
-    st.markdown("---")
-    st.caption(f"Watchlist: {len(st.session_state.watchlist)} stocks")
+        with r4c2:
+            perf_min = st.slider("Min Perf %", -100.0, 300.0, -50.0, step=1.0)
+        with r4c3:
+            perf_max = st.slider("Max Perf %", -100.0, 300.0, 300.0, step=1.0)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Filter action row
+act1, act2, act3 = st.columns([1, 1, 8])
+with act1:
+    st.markdown('<div class="fv-filter-btn">', unsafe_allow_html=True)
+    run_button = st.button("▼  Filter", use_container_width=True, type="primary")
+    st.markdown('</div>', unsafe_allow_html=True)
+with act2:
+    st.caption(f"Watchlist: {len(st.session_state.watchlist)}")
+
+st.markdown(filter_panel_close(), unsafe_allow_html=True)
 
 # =============================
 # EXPANDED STOCK UNIVERSE
@@ -1029,7 +934,7 @@ if run_button:
     
     progress_container = st.container()
     with progress_container:
-        st.markdown(status_strip(f"Screening {len(universe)} symbols with active filters..."), unsafe_allow_html=True)
+        st.markdown(results_bar(message=f"Scanning {len(universe)} symbols..."), unsafe_allow_html=True)
         progress_bar = st.progress(0)
         status_text = st.empty()
     
@@ -1061,51 +966,36 @@ if run_button:
         
         st.session_state.screened_stocks = df
         
-        # Summary metrics
-        col1, col2, col3, col4, col5 = st.columns(5)
         avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
         avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
         avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
         total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
 
-        with col1:
-            st.markdown(kpi_card("Matches", str(len(df))), unsafe_allow_html=True)
-        with col2:
-            st.markdown(kpi_card("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "N/A"), unsafe_allow_html=True)
-        with col3:
-            st.markdown(
-                kpi_card(
-                    "Avg 1Y Return",
-                    format_pct(avg_perf) if avg_perf is not None else "N/A",
-                    delta="Annual performance" if avg_perf is not None else "",
-                    delta_type=delta_type_for_value(avg_perf),
-                ),
-                unsafe_allow_html=True,
-            )
-        with col4:
-            st.markdown(kpi_card("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "N/A"), unsafe_allow_html=True)
-        with col5:
-            st.markdown(kpi_card("Total Mkt Cap", format_market_cap(total_mc) if total_mc else "N/A"), unsafe_allow_html=True)
-        
-        st.markdown(status_strip(f"{len(df)} symbols matched · sorted by market cap"), unsafe_allow_html=True)
-        
-        # Main tabs
+        st.markdown(results_bar(count=len(df)), unsafe_allow_html=True)
+        st.markdown(kpi_strip([
+            ("Matches", str(len(df))),
+            ("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "-"),
+            ("Avg 1Y", format_pct(avg_perf) if avg_perf is not None else "-", delta_class(avg_perf)),
+            ("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "-"),
+            ("Total Cap", format_market_cap(total_mc) if total_mc else "-"),
+        ]), unsafe_allow_html=True)
+
+        st.markdown('<div class="results-zone">', unsafe_allow_html=True)
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Results", "Performance", "Sectors", "Correlation", 
-            "Charts", "Watchlist"
+            "Overview", "Performance", "Sectors", "Correlation", "Charts", "Watchlist"
         ])
         
         with tab1:
-            st.markdown('<div class="section-header">Screener Results</div>', unsafe_allow_html=True)
-            # Sortable columns
-            sort_col = st.selectbox("Sort by:", [
-                "MarketCap", "Price", 
-                "PE", "PB", "PS", "PEG", "EV_EBITDA",
-                "ROE", "ROA", "ProfitMargin", "OperatingMargin",
-                "DebtToEquity", "CurrentRatio", "QuickRatio",
-                "Year", "RSI", "Sharpe"
-            ])
-            sort_asc = st.checkbox("Ascending", value=False)
+            sort_col1, sort_col2, sort_col3, export_col1, export_col2 = st.columns([2, 1, 1, 1, 1])
+            with sort_col1:
+                sort_col = st.selectbox("Order by", [
+                    "MarketCap", "Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                    "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+                    "DebtToEquity", "CurrentRatio", "QuickRatio",
+                    "Year", "RSI", "Sharpe"
+                ], label_visibility="collapsed")
+            with sort_col2:
+                sort_asc = st.checkbox("Asc", value=False)
             df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
             
             df_display = format_dataframe(df_sorted)
@@ -1126,32 +1016,31 @@ if run_button:
             available_cols = [col for col in display_cols if col in df_display.columns]
             df_display = df_display[available_cols]
             
-            st.dataframe(df_display, use_container_width=True, height=600, hide_index=True)
+            st.dataframe(df_display, use_container_width=True, height=520, hide_index=True)
             
-            # Export buttons
-            col1, col2 = st.columns(2)
-            with col1:
+            with export_col1:
                 csv = df.to_csv(index=False)
-                st.download_button("Download CSV", csv, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-            with col2:
+                st.download_button("Export CSV", csv, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            with export_col2:
                 try:
                     import io
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False, sheet_name='Screener Results')
                     excel_data = output.getvalue()
-                    st.download_button("Download Excel", excel_data, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                except:
-                    st.info("Excel export requires openpyxl")
+                    st.download_button("Export XLS", excel_data, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                except Exception:
+                    pass
             
-            # Add to watchlist
-            selected_tickers = st.multiselect("Add to Watchlist:", df_sorted["Ticker"].tolist())
-            if st.button("Add Selected to Watchlist"):
-                for ticker in selected_tickers:
-                    if ticker not in st.session_state.watchlist:
-                        st.session_state.watchlist.append(ticker)
-                st.success(f"Added {len(selected_tickers)} stocks to watchlist")
-                st.rerun()
+            wl_col1, wl_col2 = st.columns([4, 1])
+            with wl_col1:
+                selected_tickers = st.multiselect("Add to watchlist", df_sorted["Ticker"].tolist(), label_visibility="collapsed")
+            with wl_col2:
+                if st.button("Add", key="add_watchlist"):
+                    for ticker in selected_tickers:
+                        if ticker not in st.session_state.watchlist:
+                            st.session_state.watchlist.append(ticker)
+                    st.rerun()
         
         with tab2:
             # Performance heatmap
@@ -1256,23 +1145,16 @@ if run_button:
                         
                         col1, col2, col3, col4, col5 = st.columns(5)
                         with col1:
-                            st.markdown(kpi_card("Price", f"${current_price:.2f}"), unsafe_allow_html=True)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Price</div><div class="fv-kpi-val">${current_price:.2f}</div></div>', unsafe_allow_html=True)
                         with col2:
-                            st.markdown(
-                                kpi_card(
-                                    "Change",
-                                    f"${price_change:+.2f}",
-                                    delta=format_pct(price_change_pct),
-                                    delta_type=delta_type_for_value(price_change_pct),
-                                ),
-                                unsafe_allow_html=True,
-                            )
+                            chg_cls = delta_class(price_change_pct)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Change</div><div class="fv-kpi-val {chg_cls}">{format_pct(price_change_pct)}</div></div>', unsafe_allow_html=True)
                         with col3:
-                            st.markdown(kpi_card("High", f"${hist_data['High'].max():.2f}"), unsafe_allow_html=True)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">High</div><div class="fv-kpi-val">${hist_data["High"].max():.2f}</div></div>', unsafe_allow_html=True)
                         with col4:
-                            st.markdown(kpi_card("Low", f"${hist_data['Low'].min():.2f}"), unsafe_allow_html=True)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Low</div><div class="fv-kpi-val">${hist_data["Low"].min():.2f}</div></div>', unsafe_allow_html=True)
                         with col5:
-                            st.markdown(kpi_card("Volume", f"{hist_data['Volume'].iloc[-1]:,.0f}"), unsafe_allow_html=True)
+                            st.markdown(f'<div class="fv-kpi"><div class="fv-kpi-label">Volume</div><div class="fv-kpi-val">{hist_data["Volume"].iloc[-1]:,.0f}</div></div>', unsafe_allow_html=True)
                         
                         st.markdown("---")
                         
@@ -1312,6 +1194,8 @@ if run_button:
             if st.button("Clear Watchlist"):
                 st.session_state.watchlist = []
                 st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.warning("No stocks match your criteria. Try adjusting your filters.")
         if errors > 0:
@@ -1319,31 +1203,14 @@ if run_button:
 
 else:
     st.markdown(
-        status_strip("Configure filters in the sidebar, then run the screener to load results."),
+        '<div class="fv-empty">Configure filters above and click <strong>▼ Filter</strong> to load results.</div>',
         unsafe_allow_html=True,
     )
-    st.markdown("""
-    <div class="welcome-panel">
-        <h2>Market Screening Terminal</h2>
-        <p>Dense fundamental and technical screening for US and Canadian equities. All filters remain available in the sidebar.</p>
-        <br>
-        <div class="section-header">Capabilities</div>
-        <ul>
-        <li>Fundamental filters: P/E, P/B, P/S, EV/EBITDA, growth, margins, leverage, liquidity</li>
-        <li>Technical indicators: RSI, MACD, Bollinger Bands, SMA crossovers, stochastic, ATR</li>
-        <li>Risk metrics: Sharpe ratio and volatility</li>
-        <li>Performance views across week, month, quarter, half-year, and year</li>
-        <li>Interactive dark charts, sector breakdown, correlation matrix</li>
-        <li>Watchlist tracking and CSV / Excel export</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
 
 # =============================
 # FOOTER
 # =============================
 st.markdown(
-    '<div class="terminal-footer">Stock Screener Terminal · Powered by Yahoo Finance<br>'
-    '<small>For educational purposes only · Not financial advice</small></div>',
+    '<div class="fv-footer">Stock Screener · Powered by Yahoo Finance · For educational purposes only · Not financial advice</div>',
     unsafe_allow_html=True,
 )
