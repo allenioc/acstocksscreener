@@ -317,6 +317,156 @@ def passes_filters(stock: Optional[dict], cfg: dict) -> Tuple[bool, Optional[str
     return True, None
 
 
+def _df_col(df, *names):
+    import pandas as pd
+
+    for name in names:
+        if name in df.columns:
+            return pd.to_numeric(df[name], errors="coerce")
+    return pd.Series(float("nan"), index=df.index)
+
+
+def apply_screener_filters(df, cfg: dict):
+    """Vectorized DataFrame filtering. Returns (filtered_df, rejection_counts, excluded_samples)."""
+    import pandas as pd
+
+    if df is None or df.empty:
+        return df, {}, []
+
+    mask = pd.Series(True, index=df.index)
+    reasons = pd.Series(None, dtype="object", index=df.index)
+    rejections: dict[str, int] = {}
+
+    def _reject(category: str, fail_mask):
+        nonlocal mask
+        newly_failed = mask & fail_mask
+        count = int(newly_failed.sum())
+        if count:
+            rejections[category] = rejections.get(category, 0) + count
+            reasons.loc[newly_failed & reasons.isna()] = category
+        mask &= ~fail_mask
+
+    def _apply_range(category: str, col, f: dict):
+        if not f.get("active"):
+            return
+        col = pd.to_numeric(col, errors="coerce")
+        fail = col.isna() | (col < f["min"]) | (col > f["max"])
+        _reject(category, fail)
+
+    _apply_range("price", _df_col(df, "price", "Price"), cfg["price"])
+
+    if cfg["volume"]["active"]:
+        vol = _df_col(df, "volume", "Volume", "average_volume", "AvgVolume")
+        _reject("volume", vol.isna() | (vol < cfg["volume"]["min"]))
+
+    if cfg["market_cap"]["active"]:
+        mc = _df_col(df, "market_cap", "MarketCap")
+        cap = cfg["market_cap"]["value"]
+        fail = mc.isna()
+        if cap == "Mega (>$200B)":
+            fail |= mc < 200e9
+        elif cap == "Large ($10B-$200B)":
+            fail |= (mc < 10e9) | (mc >= 200e9)
+        elif cap == "Mid ($2B-$10B)":
+            fail |= (mc < 2e9) | (mc >= 10e9)
+        elif cap == "Small ($300M-$2B)":
+            fail |= (mc < 300e6) | (mc >= 2e9)
+        elif cap == "Micro (<$300M)":
+            fail |= mc >= 300e6
+        _reject("market_cap", fail)
+
+    for field in (
+        "pe", "pb", "ps", "ev_ebitda", "peg", "roe", "roa", "profit_margin",
+        "operating_margin", "debt_to_equity", "debt_to_assets", "equity_ratio",
+        "interest_coverage", "current_ratio", "quick_ratio", "beta", "rsi",
+    ):
+        key_map = {
+            "pe": ("pe", "PE"),
+            "pb": ("pb", "PB"),
+            "ps": ("ps", "PS"),
+            "ev_ebitda": ("ev_ebitda", "EV_EBITDA"),
+            "peg": ("peg", "PEG"),
+            "roe": ("roe", "ROE"),
+            "roa": ("roa", "ROA"),
+            "profit_margin": ("profit_margin", "ProfitMargin"),
+            "operating_margin": ("operating_margin", "OperatingMargin"),
+            "debt_to_equity": ("debt_to_equity", "DebtToEquity"),
+            "debt_to_assets": ("debt_to_assets", "DebtToAssets"),
+            "equity_ratio": ("equity_ratio", "EquityRatio"),
+            "interest_coverage": ("interest_coverage", "InterestCoverage"),
+            "current_ratio": ("current_ratio", "CurrentRatio"),
+            "quick_ratio": ("quick_ratio", "QuickRatio"),
+            "beta": ("beta", "Beta"),
+            "rsi": ("rsi", "RSI"),
+        }
+        _apply_range(field, _df_col(df, *key_map[field]), cfg[field])
+
+    if cfg["dividend"]["active"]:
+        div = _df_col(df, "dividend_yield", "DividendYield")
+        _reject("dividend", div.isna() | (div < cfg["dividend"]["min"]))
+
+    if cfg["eps_growth"]["active"]:
+        g = _df_col(df, "earnings_growth", "EPSGrowth")
+        _reject("eps_growth", g.isna() | (g < cfg["eps_growth"]["min"]))
+
+    if cfg["revenue_growth"]["active"]:
+        g = _df_col(df, "revenue_growth", "RevenueGrowth")
+        _reject("revenue_growth", g.isna() | (g < cfg["revenue_growth"]["min"]))
+
+    if cfg["performance"]["active"]:
+        period_map = {
+            "1 Week": ("week", "Week"),
+            "1 Month": ("month", "Month"),
+            "3 Months": ("quarter", "3Months"),
+            "6 Months": ("6Months",),
+            "1 Year": ("year", "Year"),
+        }
+        keys = period_map.get(cfg["performance"]["period"], ())
+        val = _df_col(df, *keys) if keys else pd.Series(float("nan"), index=df.index)
+        fail = val.isna() | (val < cfg["performance"]["min"]) | (val > cfg["performance"]["max"])
+        _reject("performance", fail)
+
+    if cfg["sector"]["active"]:
+        sector_col = df["sector"] if "sector" in df.columns else df.get("Sector")
+        if sector_col is None:
+            _reject("sector", pd.Series(True, index=df.index))
+        else:
+            _reject("sector", ~sector_col.isin(cfg["sector"]["values"]))
+
+    # Technical filters only when columns exist
+    if cfg.get("above_sma20"):
+        price = _df_col(df, "price", "Price")
+        sma = _df_col(df, "SMA20")
+        if sma.notna().any():
+            _reject("technical", sma.isna() | price.isna() | (price < sma))
+
+    if cfg.get("above_sma50"):
+        price = _df_col(df, "price", "Price")
+        sma = _df_col(df, "SMA50")
+        if sma.notna().any():
+            _reject("technical", sma.isna() | price.isna() | (price < sma))
+
+    if cfg.get("above_sma200"):
+        price = _df_col(df, "price", "Price")
+        sma = _df_col(df, "SMA200")
+        if sma.notna().any():
+            _reject("technical", sma.isna() | price.isna() | (price < sma))
+
+    if cfg.get("macd_bullish") and "MACD_Bullish" in df.columns:
+        _reject("technical", ~df["MACD_Bullish"].fillna(False))
+
+    if cfg["bb_position"]["active"] and "BB_Position" in df.columns:
+        _reject("technical", df["BB_Position"] != cfg["bb_position"]["value"])
+
+    filtered = df[mask].copy()
+    excluded = df[~mask].copy()
+    samples = []
+    for idx in excluded.head(10).index:
+        ticker = df.at[idx, "ticker"] if "ticker" in df.columns else df.at[idx, "Ticker"]
+        samples.append({"ticker": ticker, "reason": reasons.at[idx] or "unknown"})
+    return filtered, rejections, samples
+
+
 def empty_debug_counts() -> dict:
     return {
         "scanned": 0,

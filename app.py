@@ -20,9 +20,12 @@ from theme import (
     apply_dark_plotly_layout,
     THEME,
 )
-from universe import get_stock_universe
-from filter_logic import build_filter_config, passes_filters, empty_debug_counts, DEFAULT_BOUNDS
-from nav_pages import render_charts_page
+from filter_logic import build_filter_config, DEFAULT_BOUNDS
+from screener_backend import (
+    run_screener_pipeline,
+    format_screener_results,
+    UNIVERSE_SIZE_OPTIONS,
+)
 warnings.filterwarnings('ignore')
 
 # =============================
@@ -577,10 +580,7 @@ def format_market_cap(mc):
 # =============================
 current_page = render_top_nav()
 
-if current_page == "Charts":
-    render_charts_page(fetch_historical_data, create_advanced_candlestick_chart, create_rsi_chart)
-
-elif current_page == "Screener":
+if current_page == "Screener":
     st.markdown(filter_panel_open(), unsafe_allow_html=True)
     st.markdown('<div class="filter-zone">', unsafe_allow_html=True)
 
@@ -591,8 +591,15 @@ elif current_page == "Screener":
         with r1c1:
             markets = st.multiselect("Exchange", ["US", "Canada"], default=["US"], label_visibility="visible")
         with r1c2:
-            market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"])
+            universe_size = st.selectbox(
+                "Universe",
+                list(UNIVERSE_SIZE_OPTIONS.keys()),
+                index=1,
+                help="Limit symbols scanned for speed. Default Top 500.",
+            )
         with r1c3:
+            market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"])
+        with r1c4:
             sector_filter = st.multiselect(
                 "Sector",
                 ["Any", "Technology", "Healthcare", "Financial Services",
@@ -601,9 +608,10 @@ elif current_page == "Screener":
                  "Utilities", "Real Estate"],
                 default=["Any"],
             )
-        with r1c4:
-            price_min, price_max = st.slider("Price ($)", 0.0, 5000.0, (0.0, 5000.0), step=0.1)
         with r1c5:
+            price_min, price_max = st.slider("Price ($)", 0.0, 5000.0, (0.0, 5000.0), step=0.1)
+        r1b1, r1b2, r1b3, r1b4, r1b5 = st.columns(5)
+        with r1b1:
             min_volume = st.selectbox("Avg Volume", [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000], index=0)
 
     with ftab2:
@@ -693,7 +701,7 @@ elif current_page == "Screener":
     st.markdown(filter_panel_close(), unsafe_allow_html=True)
 
     if run_button:
-        filter_cfg = build_filter_config(
+        filter_kwargs = dict(
             price_min=price_min, price_max=price_max,
             min_volume=min_volume, market_cap=market_cap, sector_filter=sector_filter,
             pe_min=pe_min, pe_max=pe_max, pb_min=pb_min, pb_max=pb_max,
@@ -716,68 +724,51 @@ elif current_page == "Screener":
             above_sma20=above_sma20, above_sma50=above_sma50, above_sma200=above_sma200,
             macd_bullish=macd_bullish, bb_position=bb_position,
         )
-        universe = get_stock_universe(markets)
-        debug = empty_debug_counts()
-        debug["scanned"] = len(universe)
-    
+
         progress_container = st.container()
         with progress_container:
-            st.markdown(results_bar(message=f"Scanning {len(universe)} symbols..."), unsafe_allow_html=True)
+            st.markdown(results_bar(message="Starting screener scan..."), unsafe_allow_html=True)
             progress_bar = st.progress(0)
             status_text = st.empty()
-    
-        results = []
-    
-        for i, sym in enumerate(universe):
-            progress = (i + 1) / len(universe)
-            progress_bar.progress(progress)
-            status_text.text(f"Processing: {sym} ({i+1}/{len(universe)})")
-        
-            try:
-                data = fetch_stock(sym)
-            except Exception:
-                data = None
 
-            if data is None:
-                debug["fetch_failed"] += 1
-            else:
-                debug["fetched"] += 1
-                ok, reason = passes_filters(data, filter_cfg)
-                if ok:
-                    results.append(data)
-                    debug["matched"] += 1
-                elif reason:
-                    debug[reason] = debug.get(reason, 0) + 1
-        
-            time.sleep(0.02)
-    
+        def _on_progress(pct, msg):
+            progress_bar.progress(min(max(pct, 0.0), 1.0))
+            status_text.text(msg)
+
+        filtered_df, full_df, debug = run_screener_pipeline(
+            markets=markets,
+            universe_size=universe_size,
+            filter_kwargs=filter_kwargs,
+            progress_callback=_on_progress,
+        )
+
         progress_bar.empty()
         status_text.empty()
         st.session_state.last_filter_debug = debug
 
-        with st.expander("Filter debug", expanded=len(results) == 0):
-            st.write(f"**Total symbols scanned:** {debug['scanned']}")
-            st.write(f"**Successfully fetched:** {debug['fetched']}")
-            st.write(f"**Fetch failures:** {debug['fetch_failed']}")
+        with st.expander("Filter debug", expanded=filtered_df.empty):
+            st.write(f"**Total symbols loaded:** {debug['symbols_loaded']}")
+            st.write(f"**Symbols scanned:** {debug['symbols_scanned']}")
+            st.write(f"**Price data fetched:** {debug['price_fetched']}")
+            st.write(f"**Fundamentals fetched:** {debug['fundamentals_fetched']}")
+            st.write(f"**Fetch failures:** {debug['fetch_failures']}")
             st.write(f"**Final matches:** {debug['matched']}")
-            st.markdown("**Removed by filter category:**")
-            filter_rows = []
-            for key, val in debug.items():
-                if key in ("scanned", "fetched", "matched", "fetch_failed"):
-                    continue
-                if val:
-                    filter_rows.append({"Filter": key, "Removed": val})
+            st.markdown("**Removed by active filter:**")
+            filter_rows = [{"Filter": k, "Removed": v} for k, v in debug.get("filter_rejections", {}).items() if v]
             if filter_rows:
                 st.dataframe(pd.DataFrame(filter_rows), hide_index=True, use_container_width=True)
             else:
                 st.caption("No filter rejections (aside from fetch failures).")
-    
-        if results:
-            df = pd.DataFrame(results)
-        
+            if debug.get("excluded_samples"):
+                st.markdown("**First excluded tickers:**")
+                st.dataframe(pd.DataFrame(debug["excluded_samples"]), hide_index=True, use_container_width=True)
+
+        if not filtered_df.empty:
+            df = filtered_df.copy()
+
             if "MarketCap" in df.columns:
                 df = df.sort_values("MarketCap", ascending=False, na_position='last')
-        
+
             st.session_state.screened_stocks = df
         
             avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None

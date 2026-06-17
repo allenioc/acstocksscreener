@@ -541,7 +541,7 @@ def get_global_css() -> str:
     """
 
 
-NAV_PAGES = ["Screener", "Charts"]
+NAV_PAGES = ["Screener"]
 
 
 def render_top_nav() -> str:
