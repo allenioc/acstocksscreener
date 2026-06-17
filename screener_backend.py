@@ -14,7 +14,7 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-from filter_logic import build_filter_config, apply_screener_filters
+from filter_logic import build_filter_config, apply_screener_filters, any_filter_active
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 BACKUP_PATH = os.path.join(DATA_DIR, "tickers_backup.csv")
@@ -181,6 +181,19 @@ def load_symbol_universe(markets: tuple, universe_size: str) -> pd.DataFrame:
     return universe.reset_index(drop=True)
 
 
+MAX_LIVE_FUNDAMENTALS_FETCH = 200
+
+
+def _fetch_single_price(symbol: str, period: str = "6mo") -> Optional[dict]:
+    try:
+        hist = yf.Ticker(symbol).history(period=period, auto_adjust=True)
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None
+        return _price_row_from_series(symbol, hist["Close"], hist.get("Volume"))
+    except Exception:
+        return None
+
+
 def fetch_price_data_batch(tickers: list[str], period: str = "6mo") -> pd.DataFrame:
     """Batch download price/volume data via yfinance."""
     if not tickers:
@@ -228,6 +241,13 @@ def fetch_price_data_batch(tickers: list[str], period: str = "6mo") -> pd.DataFr
                 rows.append(_price_row_from_series(sym, close, vol))
             except Exception:
                 continue
+
+    fetched = {row["ticker"] for row in rows}
+    missing = [sym for sym in tickers if sym not in fetched]
+    for sym in missing:
+        row = _fetch_single_price(sym, period)
+        if row:
+            rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -300,6 +320,8 @@ def fetch_fundamentals_cached(tickers: tuple[str, ...]) -> pd.DataFrame:
             cached_by_ticker[str(row["ticker"])] = row.to_dict()
 
     to_fetch = [sym for sym in tickers if sym not in cached_by_ticker]
+    if len(to_fetch) > MAX_LIVE_FUNDAMENTALS_FETCH:
+        to_fetch = to_fetch[:MAX_LIVE_FUNDAMENTALS_FETCH]
     rows = []
 
     for sym in to_fetch:
@@ -472,40 +494,51 @@ def run_screener_pipeline(
         "matched": 0,
         "filter_rejections": {},
         "excluded_samples": [],
+        "error": None,
     }
 
-    universe_df = load_symbol_universe(tuple(markets), universe_size)
-    debug["symbols_loaded"] = len(universe_df)
-    if universe_df.empty:
+    try:
+        universe_df = load_symbol_universe(tuple(markets), universe_size)
+        debug["symbols_loaded"] = len(universe_df)
+        if universe_df.empty:
+            return pd.DataFrame(), pd.DataFrame(), debug
+
+        tickers = universe_df["ticker"].tolist()
+        debug["symbols_scanned"] = len(tickers)
+
+        if progress_callback:
+            progress_callback(0.1, "Fetching price data (batch)...")
+        price_df = fetch_price_data_batch(tickers)
+        debug["price_fetched"] = len(price_df)
+
+        if progress_callback:
+            progress_callback(0.45, "Fetching fundamentals (cached)...")
+        fundamentals_df = fetch_fundamentals_cached(tuple(tickers))
+        debug["fundamentals_fetched"] = int(fundamentals_df["ticker"].nunique()) if not fundamentals_df.empty else 0
+
+        if progress_callback:
+            progress_callback(0.75, "Normalizing and filtering...")
+
+        normalized = normalize_stock_dataframe(universe_df, price_df, fundamentals_df)
+        debug["fetch_failures"] = len(tickers) - int(normalized["price"].notna().sum()) if "price" in normalized.columns else len(tickers)
+
+        filter_cfg = build_filter_config(**filter_kwargs)
+        filtered, rejections, excluded_samples = apply_screener_filters(normalized, filter_cfg)
+
+        if filtered.empty and not any_filter_active(filter_cfg):
+            if "price" in normalized.columns:
+                filtered = normalized[normalized["price"].notna()].copy()
+            else:
+                filtered = normalized.copy()
+
+        debug["matched"] = len(filtered)
+        debug["filter_rejections"] = rejections
+        debug["excluded_samples"] = excluded_samples[:10]
+
+        if progress_callback:
+            progress_callback(1.0, "Done")
+
+        return filtered, normalized, debug
+    except Exception as exc:
+        debug["error"] = str(exc)
         return pd.DataFrame(), pd.DataFrame(), debug
-
-    tickers = universe_df["ticker"].tolist()
-    debug["symbols_scanned"] = len(tickers)
-
-    if progress_callback:
-        progress_callback(0.1, "Fetching price data (batch)...")
-    price_df = fetch_price_data_batch(tickers)
-    debug["price_fetched"] = len(price_df)
-
-    if progress_callback:
-        progress_callback(0.45, "Fetching fundamentals (cached)...")
-    fundamentals_df = fetch_fundamentals_cached(tuple(tickers))
-    debug["fundamentals_fetched"] = len(fundamentals_df)
-
-    if progress_callback:
-        progress_callback(0.75, "Normalizing and filtering...")
-
-    normalized = normalize_stock_dataframe(universe_df, price_df, fundamentals_df)
-    debug["fetch_failures"] = len(tickers) - normalized["price"].notna().sum() if "price" in normalized.columns else len(tickers)
-
-    filter_cfg = build_filter_config(**filter_kwargs)
-    filtered, rejections, excluded_samples = apply_screener_filters(normalized, filter_cfg)
-
-    debug["matched"] = len(filtered)
-    debug["filter_rejections"] = rejections
-    debug["excluded_samples"] = excluded_samples[:10]
-
-    if progress_callback:
-        progress_callback(1.0, "Done")
-
-    return filtered, normalized, debug

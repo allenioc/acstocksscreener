@@ -54,6 +54,8 @@ if 'screener_has_run' not in st.session_state:
     st.session_state.screener_has_run = False
 if 'last_filter_debug' not in st.session_state:
     st.session_state.last_filter_debug = None
+if 'auto_run_attempted' not in st.session_state:
+    st.session_state.auto_run_attempted = False
 
 def calculate_rsi(prices, period=14):
     """Calculate Relative Strength Index"""
@@ -602,8 +604,8 @@ elif current_page == "Screener":
             universe_size = st.selectbox(
                 "Universe",
                 list(UNIVERSE_SIZE_OPTIONS.keys()),
-                index=1,
-                help="Limit symbols scanned for speed. Default Top 500.",
+                index=0,
+                help="Limit symbols scanned for speed. Default Top 100.",
             )
         with r1c3:
             market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"])
@@ -625,15 +627,15 @@ elif current_page == "Screener":
     with ftab2:
         r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
         with r2c1:
-            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v4")
+            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v5")
         with r2c2:
-            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v4")
+            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v5")
         with r2c3:
-            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v4")
+            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v5")
         with r2c4:
-            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v4")
+            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v5")
         with r2c5:
-            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v4")
+            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v5")
 
         r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
         with r2b1:
@@ -649,7 +651,7 @@ elif current_page == "Screener":
 
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
-            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v4")
+            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v5")
         with r2c2b:
             debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", DEFAULT_BOUNDS["debt_to_assets"][0], DEFAULT_BOUNDS["debt_to_assets"][1], DEFAULT_BOUNDS["debt_to_assets"], step=0.1)
         with r2c3b:
@@ -657,11 +659,11 @@ elif current_page == "Screener":
         with r2c4b:
             interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", DEFAULT_BOUNDS["interest_coverage"][0], DEFAULT_BOUNDS["interest_coverage"][1], DEFAULT_BOUNDS["interest_coverage"], step=0.1)
         with r2c5b:
-            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v4")
+            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v5")
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v4")
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v5")
         with r2d2:
             beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
         with r2d3:
@@ -708,34 +710,42 @@ elif current_page == "Screener":
 
     st.markdown(filter_panel_close(), unsafe_allow_html=True)
 
-    if run_button:
-        filter_kwargs = dict(
-            price_min=price_min, price_max=price_max,
-            min_volume=min_volume, market_cap=market_cap, sector_filter=sector_filter,
-            pe_min=pe_min, pe_max=pe_max, pb_min=pb_min, pb_max=pb_max,
-            ps_min=ps_min, ps_max=ps_max,
-            ev_ebitda_min=ev_ebitda_min, ev_ebitda_max=ev_ebitda_max,
-            peg_min=peg_min, peg_max=peg_max, min_dividend=min_dividend,
-            roe_min=roe_min, roe_max=roe_max, roa_min=roa_min, roa_max=roa_max,
-            profit_margin_min=profit_margin_min, profit_margin_max=profit_margin_max,
-            operating_margin_min=operating_margin_min, operating_margin_max=operating_margin_max,
-            debt_to_equity_min=debt_to_equity_min, debt_to_equity_max=debt_to_equity_max,
-            debt_to_assets_min=debt_to_assets_min, debt_to_assets_max=debt_to_assets_max,
-            equity_ratio_min=equity_ratio_min, equity_ratio_max=equity_ratio_max,
-            interest_coverage_min=interest_coverage_min, interest_coverage_max=interest_coverage_max,
-            current_ratio_min=current_ratio_min, current_ratio_max=current_ratio_max,
-            quick_ratio_min=quick_ratio_min, quick_ratio_max=quick_ratio_max,
-            beta_min=beta_min, beta_max=beta_max,
-            eps_growth_min=eps_growth_min, revenue_growth_min=revenue_growth_min,
-            perf_period=perf_period, perf_min=perf_min, perf_max=perf_max,
-            rsi_min=rsi_min, rsi_max=rsi_max,
-            above_sma20=above_sma20, above_sma50=above_sma50, above_sma200=above_sma200,
-            macd_bullish=macd_bullish, bb_position=bb_position,
-        )
+    filter_kwargs = dict(
+        price_min=price_min, price_max=price_max,
+        min_volume=min_volume, market_cap=market_cap, sector_filter=sector_filter,
+        pe_min=pe_min, pe_max=pe_max, pb_min=pb_min, pb_max=pb_max,
+        ps_min=ps_min, ps_max=ps_max,
+        ev_ebitda_min=ev_ebitda_min, ev_ebitda_max=ev_ebitda_max,
+        peg_min=peg_min, peg_max=peg_max, min_dividend=min_dividend,
+        roe_min=roe_min, roe_max=roe_max, roa_min=roa_min, roa_max=roa_max,
+        profit_margin_min=profit_margin_min, profit_margin_max=profit_margin_max,
+        operating_margin_min=operating_margin_min, operating_margin_max=operating_margin_max,
+        debt_to_equity_min=debt_to_equity_min, debt_to_equity_max=debt_to_equity_max,
+        debt_to_assets_min=debt_to_assets_min, debt_to_assets_max=debt_to_assets_max,
+        equity_ratio_min=equity_ratio_min, equity_ratio_max=equity_ratio_max,
+        interest_coverage_min=interest_coverage_min, interest_coverage_max=interest_coverage_max,
+        current_ratio_min=current_ratio_min, current_ratio_max=current_ratio_max,
+        quick_ratio_min=quick_ratio_min, quick_ratio_max=quick_ratio_max,
+        beta_min=beta_min, beta_max=beta_max,
+        eps_growth_min=eps_growth_min, revenue_growth_min=revenue_growth_min,
+        perf_period=perf_period, perf_min=perf_min, perf_max=perf_max,
+        rsi_min=rsi_min, rsi_max=rsi_max,
+        above_sma20=above_sma20, above_sma50=above_sma50, above_sma200=above_sma200,
+        macd_bullish=macd_bullish, bb_position=bb_position,
+    )
+
+    should_run = run_button or (
+        not st.session_state.screener_has_run and not st.session_state.auto_run_attempted
+    )
+
+    if should_run:
+        if not run_button:
+            st.session_state.auto_run_attempted = True
 
         progress_container = st.container()
         with progress_container:
-            st.markdown(results_bar(message="Starting screener scan..."), unsafe_allow_html=True)
+            msg = "Starting screener scan..." if run_button else "Loading default screener results..."
+            st.markdown(results_bar(message=msg), unsafe_allow_html=True)
             progress_bar = st.progress(0)
             status_text = st.empty()
 
@@ -756,6 +766,9 @@ elif current_page == "Screener":
         st.session_state.screened_stocks = filtered_df.copy() if not filtered_df.empty else pd.DataFrame()
         st.session_state.screener_has_run = True
 
+        if debug.get("error"):
+            st.error(f"Screener error: {debug['error']}")
+
     if st.session_state.get("last_filter_debug"):
         debug = st.session_state.last_filter_debug
         no_matches = (
@@ -769,6 +782,8 @@ elif current_page == "Screener":
             st.write(f"**Fundamentals fetched:** {debug['fundamentals_fetched']}")
             st.write(f"**Fetch failures:** {debug['fetch_failures']}")
             st.write(f"**Final matches:** {debug['matched']}")
+            if debug.get("error"):
+                st.error(f"**Error:** {debug['error']}")
             st.markdown("**Removed by active filter:**")
             filter_rows = [{"Filter": k, "Removed": v} for k, v in debug.get("filter_rejections", {}).items() if v]
             if filter_rows:
@@ -1015,7 +1030,12 @@ elif current_page == "Screener":
 
             st.markdown('</div>', unsafe_allow_html=True)
     elif st.session_state.screener_has_run:
-        st.warning("No stocks match your criteria. Try adjusting your filters or check Filter debug above.")
+        st.warning("No stocks match your criteria. Try Universe: Top 100, reset filters, or check Filter debug above.")
+    elif not st.session_state.auto_run_attempted:
+        st.markdown(
+            '<div class="fv-empty">Loading screener...</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.markdown(
             '<div class="fv-empty">Configure filters above and click <strong>▼ Filter</strong> to load results.</div>',

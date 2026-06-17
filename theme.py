@@ -63,13 +63,27 @@ def get_global_css() -> str:
         max-width: 100% !important;
     }}
 
-    header[data-testid="stHeader"] {{
-        background: {t['bg_page']} !important;
-        border-bottom: 1px solid {t['border_default']};
+    header[data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"] {{
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        max-height: 0 !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        border: none !important;
     }}
 
-    #MainMenu, footer, header[data-testid="stHeader"] button {{
+    #MainMenu, footer {{
         visibility: hidden !important;
+        display: none !important;
+    }}
+
+    section.main > div.block-container {{
+        padding-top: 0.25rem !important;
     }}
 
     /* Collapse sidebar — Finviz uses full-width filters */
@@ -461,8 +475,45 @@ def get_global_css() -> str:
     .fv-nav-wrapper {{
         background: {t['bg_nav']};
         border-bottom: 2px solid {t['border_default']};
-        margin: -0.4rem -1rem 8px -1rem;
-        padding: 6px 12px 4px 12px;
+        margin: 0 -1rem 8px -1rem;
+        padding: 8px 12px;
+    }}
+
+    .fv-nav-row {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }}
+
+    .fv-nav-btn-wrap {{
+        display: flex;
+        gap: 0;
+        align-items: stretch;
+    }}
+
+    .fv-nav-btn-wrap button {{
+        border-radius: 0 !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        background: transparent !important;
+        color: {t['text_secondary']} !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        padding: 6px 14px !important;
+        min-height: 32px !important;
+        box-shadow: none !important;
+    }}
+
+    .fv-nav-btn-wrap button:hover {{
+        background: rgba(255,255,255,0.04) !important;
+        color: #fff !important;
+    }}
+
+    .fv-nav-btn-wrap button[kind="primary"],
+    .fv-nav-btn-wrap button[data-testid="stBaseButton-primary"] {{
+        color: #fff !important;
+        border-bottom-color: {t['accent_blue']} !important;
+        background: rgba(74,163,255,0.08) !important;
     }}
 
     .fv-nav-brand-inline {{
@@ -550,25 +601,31 @@ def render_top_nav() -> str:
         st.session_state.nav_page = "Screener"
 
     st.markdown('<div class="fv-nav-wrapper">', unsafe_allow_html=True)
-    brand_col, nav_col = st.columns([1.1, 8.9])
+    brand_col, nav_col, _spacer = st.columns([1.3, 2.2, 6.5])
     with brand_col:
         st.markdown('<div class="fv-nav-brand-inline">StockTerminal</div>', unsafe_allow_html=True)
     with nav_col:
-        idx = NAV_PAGES.index(st.session_state.nav_page) if st.session_state.nav_page in NAV_PAGES else 0
-        selected = st.radio(
-            "Navigation",
-            NAV_PAGES,
-            index=idx,
-            horizontal=True,
-            label_visibility="collapsed",
-            key="top_nav_radio_v2",
-        )
-        st.session_state.nav_page = selected
-
-    st.markdown(
-        f'<div class="fv-nav-meta-bar">US · CA · LIVE · {st.session_state.nav_page}</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown('<div class="fv-nav-btn-wrap">', unsafe_allow_html=True)
+        btn1, btn2 = st.columns(2)
+        with btn1:
+            if st.button(
+                "Screener",
+                type="primary" if st.session_state.nav_page == "Screener" else "secondary",
+                use_container_width=True,
+                key="nav_btn_screener",
+            ):
+                st.session_state.nav_page = "Screener"
+                st.rerun()
+        with btn2:
+            if st.button(
+                "Charts",
+                type="primary" if st.session_state.nav_page == "Charts" else "secondary",
+                use_container_width=True,
+                key="nav_btn_charts",
+            ):
+                st.session_state.nav_page = "Charts"
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
     return st.session_state.nav_page
 

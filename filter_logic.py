@@ -79,6 +79,17 @@ def _range_active(name: str, lo: float, hi: float, tol: float = 0.5) -> bool:
     return True
 
 
+def any_filter_active(cfg: dict) -> bool:
+    """Return True if any screener filter is actively narrowing results."""
+    for key, val in cfg.items():
+        if isinstance(val, dict):
+            if val.get("active"):
+                return True
+        elif isinstance(val, bool) and val:
+            return True
+    return False
+
+
 def build_filter_config(
     *,
     price_min: float,
@@ -215,7 +226,7 @@ def passes_filters(stock: Optional[dict], cfg: dict) -> Tuple[bool, Optional[str
         return True, None
 
     # Price (require value when filter active)
-    ok, reason = range_filter("price", "price", require_value=True)
+    ok, reason = range_filter("price", "price", require_value=False)
     if not ok:
         return False, reason
 
@@ -359,7 +370,7 @@ def apply_screener_filters(df, cfg: dict):
             fail = col.notna() & out_of_range
         _reject(category, fail)
 
-    _apply_range("price", _df_col(df, "price", "Price"), cfg["price"], require_value=True)
+    _apply_range("price", _df_col(df, "price", "Price"), cfg["price"], require_value=False)
 
     if cfg["volume"]["active"]:
         vol = _df_col(df, "volume", "Volume", "average_volume", "AvgVolume")
