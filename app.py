@@ -609,15 +609,15 @@ elif current_page == "Screener":
     with ftab2:
         r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
         with r2c1:
-            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v2")
+            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v3")
         with r2c2:
-            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v2")
+            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v3")
         with r2c3:
-            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v2")
+            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v3")
         with r2c4:
-            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v2")
+            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v3")
         with r2c5:
-            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v2")
+            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v3")
 
         r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
         with r2b1:
@@ -633,7 +633,7 @@ elif current_page == "Screener":
 
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
-            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v2")
+            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v3")
         with r2c2b:
             debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", DEFAULT_BOUNDS["debt_to_assets"][0], DEFAULT_BOUNDS["debt_to_assets"][1], DEFAULT_BOUNDS["debt_to_assets"], step=0.1)
         with r2c3b:
@@ -641,11 +641,11 @@ elif current_page == "Screener":
         with r2c4b:
             interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", DEFAULT_BOUNDS["interest_coverage"][0], DEFAULT_BOUNDS["interest_coverage"][1], DEFAULT_BOUNDS["interest_coverage"], step=0.1)
         with r2c5b:
-            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v2")
+            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v3")
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v2")
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v3")
         with r2d2:
             beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
         with r2d3:

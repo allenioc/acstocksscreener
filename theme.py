@@ -561,7 +561,7 @@ def render_top_nav() -> str:
             index=idx,
             horizontal=True,
             label_visibility="collapsed",
-            key="top_nav_radio",
+            key="top_nav_radio_v2",
         )
         st.session_state.nav_page = selected
 

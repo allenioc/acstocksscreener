@@ -32,6 +32,29 @@ DEFAULT_REV_GROWTH_MIN = -100.0
 DEFAULT_PERF_MIN = -100.0
 DEFAULT_PERF_MAX = 300.0
 
+# Ranges treated as "no filter" — includes current defaults and legacy Streamlit session values.
+NEUTRAL_RANGES = {
+    "price": [(0.0, 5000.0)],
+    "pe": [(-100.0, 500.0), (0.0, 100.0)],
+    "pb": [(-50.0, 50.0), (0.0, 20.0)],
+    "ps": [(0.0, 200.0), (0.0, 50.0)],
+    "ev_ebitda": [(-50.0, 200.0), (0.0, 50.0)],
+    "peg": [(-10.0, 50.0), (0.0, 10.0)],
+    "roe": [(-100.0, 200.0), (-50.0, 100.0)],
+    "roa": [(-100.0, 100.0), (-50.0, 50.0)],
+    "profit_margin": [(-100.0, 100.0), (-50.0, 50.0)],
+    "operating_margin": [(-100.0, 100.0), (-50.0, 50.0)],
+    "debt_to_equity": [(0.0, 500.0), (0.0, 10.0)],
+    "debt_to_assets": [(0.0, 100.0)],
+    "equity_ratio": [(0.0, 100.0)],
+    "interest_coverage": [(0.0, 100.0), (0.0, 50.0)],
+    "current_ratio": [(0.0, 20.0), (0.0, 10.0)],
+    "quick_ratio": [(0.0, 20.0), (0.0, 10.0)],
+    "beta": [(0.0, 5.0)],
+    "rsi": [(0.0, 100.0)],
+    "performance": [(-100.0, 300.0), (-50.0, 300.0)],
+}
+
 
 def _num(value: Any) -> Optional[float]:
     if value is None:
@@ -45,9 +68,13 @@ def _num(value: Any) -> Optional[float]:
     return f
 
 
-def _range_active(lo: float, hi: float, default_lo: float, default_hi: float, tol: float = 0.05) -> bool:
-    """True when the user narrowed the range away from the neutral defaults."""
-    return (lo > default_lo + tol) or (hi < default_hi - tol)
+def _range_active(name: str, lo: float, hi: float, tol: float = 0.5) -> bool:
+    """False when slider matches any known neutral/default range (filter not applied)."""
+    ranges = NEUTRAL_RANGES.get(name, [DEFAULT_BOUNDS[name]])
+    for dlo, dhi in ranges:
+        if abs(lo - dlo) <= tol and abs(hi - dhi) <= tol:
+            return False
+    return True
 
 
 def build_filter_config(
@@ -104,8 +131,7 @@ def build_filter_config(
     bb_position: str,
 ) -> dict:
     def rb(name: str, lo: float, hi: float) -> dict:
-        dlo, dhi = DEFAULT_BOUNDS[name]
-        return {"min": lo, "max": hi, "active": _range_active(lo, hi, dlo, dhi)}
+        return {"min": lo, "max": hi, "active": _range_active(name, lo, hi)}
 
     return {
         "price": rb("price", price_min, price_max),
@@ -136,7 +162,7 @@ def build_filter_config(
             "min": perf_min,
             "max": perf_max,
             "active": perf_period != "Any" and _range_active(
-                perf_min, perf_max, DEFAULT_PERF_MIN, DEFAULT_PERF_MAX
+                "performance", perf_min, perf_max
             ),
         },
         "rsi": rb("rsi", rsi_min, rsi_max),
