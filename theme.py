@@ -1,5 +1,7 @@
 """Finviz-inspired dark financial screener theme."""
 
+import streamlit as st
+
 THEME = {
     "bg_page": "#1a1e26",
     "bg_surface": "#222832",
@@ -454,26 +456,132 @@ def get_global_css() -> str:
         border-color: {t['border_subtle']} !important;
         margin: 4px 0 !important;
     }}
+
+    /* ── Functional top navigation ── */
+    .fv-nav-wrapper {{
+        background: {t['bg_nav']};
+        border-bottom: 2px solid {t['border_default']};
+        margin: -0.4rem -1rem 8px -1rem;
+        padding: 6px 12px 4px 12px;
+    }}
+
+    .fv-nav-brand-inline {{
+        font-size: 15px;
+        font-weight: 700;
+        color: {t['accent_blue']};
+        padding-top: 6px;
+        letter-spacing: -0.02em;
+    }}
+
+    .fv-nav-meta-bar {{
+        font-size: 10px;
+        color: {t['text_muted']};
+        text-align: right;
+        padding: 2px 4px 4px 0;
+        font-family: {t['font_mono']};
+    }}
+
+    div[data-testid="stRadio"] > div[role="radiogroup"] {{
+        gap: 0 !important;
+        flex-wrap: wrap;
+    }}
+
+    div[data-testid="stRadio"] label {{
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        border-radius: 0 !important;
+        padding: 6px 12px !important;
+        margin: 0 !important;
+        min-height: 30px !important;
+    }}
+
+    div[data-testid="stRadio"] label:hover {{
+        background: rgba(255,255,255,0.04) !important;
+    }}
+
+    div[data-testid="stRadio"] label[data-checked="true"],
+    div[data-testid="stRadio"] label:has(input:checked) {{
+        border-bottom-color: {t['accent_blue']} !important;
+        color: #fff !important;
+    }}
+
+    div[data-testid="stRadio"] label p {{
+        font-size: 12px !important;
+        font-weight: 600 !important;
+    }}
+
+    .fv-news-item {{
+        background: {t['bg_surface']};
+        border: 1px solid {t['border_default']};
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        border-radius: 3px;
+    }}
+
+    .fv-news-title {{
+        font-size: 13px;
+        font-weight: 600;
+        color: {t['text_primary']};
+        margin-bottom: 4px;
+    }}
+
+    .fv-news-meta {{
+        font-size: 11px;
+        color: {t['text_muted']};
+        margin-bottom: 4px;
+    }}
+
+    .fv-news-link {{
+        font-size: 11px;
+        color: {t['accent_blue']};
+        text-decoration: none;
+        font-weight: 600;
+    }}
     """
 
 
+NAV_PAGES = ["Screener", "Charts", "Maps", "Groups", "Insider", "News"]
+
+
+def render_top_nav() -> str:
+    """Render working Streamlit navigation and return the active page."""
+    if "nav_page" not in st.session_state:
+        st.session_state.nav_page = "Screener"
+
+    st.markdown('<div class="fv-nav-wrapper">', unsafe_allow_html=True)
+    brand_col, nav_col = st.columns([1.1, 8.9])
+    with brand_col:
+        st.markdown('<div class="fv-nav-brand-inline">StockTerminal</div>', unsafe_allow_html=True)
+    with nav_col:
+        idx = NAV_PAGES.index(st.session_state.nav_page) if st.session_state.nav_page in NAV_PAGES else 0
+        selected = st.radio(
+            "Navigation",
+            NAV_PAGES,
+            index=idx,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="top_nav_radio",
+        )
+        st.session_state.nav_page = selected
+
+    st.markdown(
+        f'<div class="fv-nav-meta-bar">US · CA · LIVE · {st.session_state.nav_page}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    return st.session_state.nav_page
+
+
 def finviz_nav(active: str = "screener") -> str:
+    """Deprecated decorative nav — use render_top_nav() instead."""
     t = THEME
-    items = [
-        ("screener", "Screener"),
-        ("charts", "Charts"),
-        ("maps", "Maps"),
-        ("groups", "Groups"),
-        ("portfolio", "Portfolio"),
-        ("insider", "Insider"),
-        ("news", "News"),
-    ]
-
+    label_map = {p.lower(): p for p in NAV_PAGES}
+    active_label = label_map.get(active, "Screener")
     nav_items = ""
-    for key, label in items:
-        cls = "fv-nav-item active" if key == active else "fv-nav-item"
-        nav_items += f'<div class="{cls}">{label}</div>'
-
+    for page in NAV_PAGES:
+        cls = "fv-nav-item active" if page == active_label else "fv-nav-item"
+        nav_items += f'<div class="{cls}">{page}</div>'
     return f"""
     <div class="fv-nav">
         <div class="fv-nav-brand">StockTerminal</div>
@@ -519,6 +627,18 @@ def kpi_strip(cards: list) -> str:
             <div class="fv-kpi-val {css}">{value}</div>
         </div>"""
     return f'<div class="fv-kpi-strip">{items}</div>'
+
+
+def format_market_cap_display(mc):
+    if mc is None or (isinstance(mc, float) and (mc != mc)):
+        return "Data unavailable"
+    if mc >= 1e12:
+        return f"${mc/1e12:.2f}T"
+    if mc >= 1e9:
+        return f"${mc/1e9:.2f}B"
+    if mc >= 1e6:
+        return f"${mc/1e6:.2f}M"
+    return f"${mc:,.0f}"
 
 
 def format_pct(value, include_sign: bool = True) -> str:
