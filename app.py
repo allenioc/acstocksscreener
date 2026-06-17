@@ -27,6 +27,7 @@ from screener_backend import (
     UNIVERSE_SIZE_OPTIONS,
 )
 from nav_pages import render_charts_page
+from stock_detail import render_stock_detail_panel
 warnings.filterwarnings('ignore')
 
 # =============================
@@ -56,6 +57,10 @@ if 'last_filter_debug' not in st.session_state:
     st.session_state.last_filter_debug = None
 if 'auto_run_attempted' not in st.session_state:
     st.session_state.auto_run_attempted = False
+if 'last_filter_kwargs' not in st.session_state:
+    st.session_state.last_filter_kwargs = None
+if 'detail_ticker' not in st.session_state:
+    st.session_state.detail_ticker = None
 
 def calculate_rsi(prices, period=14):
     """Calculate Relative Strength Index"""
@@ -765,6 +770,15 @@ elif current_page == "Screener":
         st.session_state.last_filter_debug = debug
         st.session_state.screened_stocks = filtered_df.copy() if not filtered_df.empty else pd.DataFrame()
         st.session_state.screener_has_run = True
+        st.session_state.last_filter_kwargs = filter_kwargs
+        if not filtered_df.empty:
+            tickers = (
+                filtered_df["Ticker"].tolist()
+                if "Ticker" in filtered_df.columns
+                else filtered_df["ticker"].tolist()
+            )
+            if st.session_state.detail_ticker not in tickers:
+                st.session_state.detail_ticker = tickers[0]
 
         if debug.get("error"):
             st.error(f"Screener error: {debug['error']}")
@@ -848,8 +862,49 @@ elif current_page == "Screener":
                           "Week", "Month", "Year", "Sector"]
             available_cols = [col for col in display_cols if col in df_display.columns]
             df_display = df_display[available_cols]
-        
-            st.dataframe(df_display, use_container_width=True, height=520, hide_index=True)
+
+            ticker_list = df_sorted["Ticker"].tolist()
+            selected_ticker = st.session_state.detail_ticker
+            if selected_ticker not in ticker_list:
+                selected_ticker = ticker_list[0] if ticker_list else None
+
+            try:
+                table_event = st.dataframe(
+                    df_display,
+                    use_container_width=True,
+                    height=420,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="screener_results_table",
+                )
+                if (
+                    table_event is not None
+                    and hasattr(table_event, "selection")
+                    and table_event.selection
+                    and table_event.selection.rows
+                ):
+                    row_idx = table_event.selection.rows[0]
+                    selected_ticker = df_sorted.iloc[row_idx]["Ticker"]
+                    st.session_state.detail_ticker = selected_ticker
+            except TypeError:
+                st.dataframe(df_display, use_container_width=True, height=420, hide_index=True)
+
+            selected_ticker = st.selectbox(
+                "Select stock for full analysis",
+                ticker_list,
+                index=ticker_list.index(selected_ticker) if selected_ticker in ticker_list else 0,
+                key="detail_ticker_select",
+            )
+            st.session_state.detail_ticker = selected_ticker
+
+            if selected_ticker:
+                render_stock_detail_panel(
+                    selected_ticker,
+                    df,
+                    st.session_state.get("last_filter_kwargs"),
+                    fetch_historical_data,
+                )
         
             with export_col1:
                 csv = df.to_csv(index=False)
