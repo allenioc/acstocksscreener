@@ -18,6 +18,9 @@ THEME = {
     "text_muted": "#8b95a7",
     "accent_blue": "#4aa3ff",
     "accent_blue_hover": "#79bdff",
+    "card_bg": "#131824",
+    "card_inner_bg": "#182033",
+    "card_border": "#2A3245",
     "nav_active": "#1E88E5",
     "nav_active_hover": "#2196F3",
     "nav_active_border": "#64B5F6",
@@ -514,6 +517,129 @@ def get_global_css() -> str:
         color: {t['accent_blue']};
         letter-spacing: -0.02em;
     }}
+
+    /* ── Card containers ── */
+    .st-key-deep_dive_banner,
+    div[class*="st-key-quality_card_"],
+    div[data-testid="stMetric"] {{
+        border: 1px solid {t['card_border']} !important;
+        background-color: {t['card_bg']} !important;
+        border-radius: 8px !important;
+        padding: 1.25rem !important;
+    }}
+
+    .st-key-deep_dive_banner {{
+        padding: 0.75rem 1.25rem !important;
+    }}
+
+    .fv-kpi {{
+        border: 1px solid {t['card_border']} !important;
+        background-color: {t['card_bg']} !important;
+        border-radius: 8px !important;
+    }}
+
+    .st-key-open_deep_dive button {{
+        background: {t['nav_active']} !important;
+        border: 1px solid {t['nav_active_border']} !important;
+        color: #fff !important;
+        font-weight: 700 !important;
+    }}
+
+    .st-key-open_deep_dive button:hover {{
+        background: {t['nav_active_hover']} !important;
+    }}
+
+    /* Selected-ticker banner */
+    .dd-banner {{
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 22px;
+    }}
+    .dd-title {{ font-size: 13px; color: {t['text_secondary']}; margin-right: 4px; }}
+    .dd-title b {{ color: {t['accent_blue']}; }}
+    .dd-stat {{ display: flex; flex-direction: column; line-height: 1.3; }}
+    .dd-stat-label {{
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: {t['text_muted']};
+    }}
+    .dd-stat-value {{
+        font-size: 13px; font-weight: 600; color: {t['text_primary']}; font-family: {t['font_mono']};
+    }}
+
+    /* Earnings quality tiles */
+    .fq-tile {{
+        background: {t['card_inner_bg']};
+        border: 1px solid {t['card_border']};
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        min-height: 182px;
+    }}
+    .fq-tile-label, .fq-cat-head {{
+        font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+        color: {t['text_muted']};
+    }}
+    .fq-tile-value {{
+        font-size: 30px; font-weight: 700; color: {t['text_primary']};
+        font-family: {t['font_mono']}; margin: 4px 0 10px;
+    }}
+    .fq-tile-value.green {{ color: {t['positive']}; }}
+    .fq-tile-value.red {{ color: {t['negative']}; }}
+    .fq-tile-value.muted {{ font-size: 18px; color: {t['text_muted']}; }}
+    .fq-tile-denom {{ font-size: 16px; color: {t['text_muted']}; margin-left: 2px; }}
+    .fq-tile-sub {{ font-size: 12px; color: {t['text_secondary']}; line-height: 1.5; margin-top: 8px; }}
+
+    .fq-segments {{ display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }}
+    .fq-seg {{ height: 8px; border-radius: 2px; background: {t['border_default']}; }}
+    .fq-seg.pass {{ background: {t['positive']}; }}
+    .fq-seg.fail {{ background: {t['negative']}; }}
+
+    .fq-gauge {{ position: relative; display: flex; height: 8px; margin: 2px 0 4px; }}
+    .fq-gauge .zone {{ flex: 1; }}
+    .fq-gauge .zone.strong {{ background: {t['positive']}; border-radius: 4px 0 0 4px; }}
+    .fq-gauge .zone.healthy {{ background: rgba(34,197,94,0.35); }}
+    .fq-gauge .zone.risk {{ background: {t['negative']}; border-radius: 0 4px 4px 0; }}
+    .fq-marker {{
+        position: absolute; top: -4px; width: 4px; height: 16px; border-radius: 2px;
+        background: #fff; transform: translateX(-50%); box-shadow: 0 0 0 2px {t['card_inner_bg']};
+    }}
+    .fq-gauge-scale {{
+        display: flex; justify-content: space-between; margin-bottom: 10px;
+        font-size: 10px; color: {t['text_muted']}; font-family: {t['font_mono']};
+    }}
+
+    .fq-badge {{
+        display: inline-block; padding: 3px 10px; border-radius: 999px;
+        font-size: 12px; font-weight: 600; border: 1px solid;
+    }}
+    .fq-badge.green {{ color: {t['positive']}; background: rgba(34,197,94,0.12); }}
+    .fq-badge.red {{ color: {t['negative']}; background: rgba(255,77,94,0.12); }}
+
+    .fq-cat {{
+        background: {t['card_inner_bg']};
+        border: 1px solid {t['card_border']};
+        border-radius: 8px;
+        padding: 0.85rem;
+        margin-top: 0.75rem;
+    }}
+    .fq-cat-head {{ display: flex; justify-content: space-between; margin-bottom: 8px; }}
+    .fq-cat-count {{ color: {t['text_primary']}; font-family: {t['font_mono']}; }}
+
+    .fq-pill {{
+        display: flex; align-items: flex-start; gap: 8px;
+        padding: 6px 10px; margin-bottom: 6px; border-radius: 6px; border: 1px solid {t['card_border']};
+    }}
+    .fq-pill.pass {{ border-color: rgba(34,197,94,0.45); background: rgba(34,197,94,0.08); }}
+    .fq-pill.fail {{ border-color: rgba(255,77,94,0.45); background: rgba(255,77,94,0.08); }}
+    .fq-pill-icon {{ width: 14px; font-weight: 800; color: {t['text_muted']}; }}
+    .fq-pill.pass .fq-pill-icon {{ color: {t['positive']}; }}
+    .fq-pill.fail .fq-pill-icon {{ color: {t['negative']}; }}
+    .fq-pill-text {{ display: flex; flex-direction: column; min-width: 0; }}
+    .fq-pill-label {{ font-size: 12px; font-weight: 600; color: {t['text_primary']}; }}
+    .fq-pill-value {{
+        font-size: 11px; color: {t['text_muted']}; font-family: {t['font_mono']};
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }}
+    .fq-note {{ font-size: 11px; color: {t['text_muted']}; margin-top: 6px; line-height: 1.5; }}
 
     .fv-nav-meta-bar {{
         font-size: 10px;

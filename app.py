@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import time
+from functools import partial
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -28,6 +29,7 @@ from screener_backend import (
 )
 from nav_pages import render_charts_page
 from stock_detail import render_stock_detail_panel
+from overview_tables import TABLE_LAYOUTS, build_table, clean_company_name, selection_banner_html
 warnings.filterwarnings('ignore')
 
 # =============================
@@ -61,6 +63,9 @@ if 'last_filter_kwargs' not in st.session_state:
     st.session_state.last_filter_kwargs = None
 if 'detail_ticker' not in st.session_state:
     st.session_state.detail_ticker = None
+
+DEEP_DIVE_TAB = "Company Deep Dive"
+RESULT_TABS = ["Overview", DEEP_DIVE_TAB, "Performance", "Sectors", "Correlation", "Charts", "Watchlist"]
 
 def calculate_rsi(prices, period=14):
     """Calculate Relative Strength Index"""
@@ -810,6 +815,10 @@ elif current_page == "Screener":
                 f"**Fundamentals failed:** {debug.get('fundamentals_failed', 0)} · "
                 f"**skipped (over live-fetch limit):** {debug.get('fundamentals_skipped', 0)}"
             )
+            st.write(
+                f"**Missing quote or statements (retried daily):** {debug.get('fundamentals_partial', 0)} · "
+                f"**rows with statement-derived metrics:** {debug.get('rows_with_derived', 0)}"
+            )
             st.write(f"**Final matches:** {debug['matched']}")
             if debug.get("price_failed_samples"):
                 st.caption("No price data: " + ", ".join(debug["price_failed_samples"]))
@@ -855,15 +864,32 @@ elif current_page == "Screener":
         ]), unsafe_allow_html=True)
 
         st.markdown('<div class="results-zone">', unsafe_allow_html=True)
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Overview", "Performance", "Sectors", "Correlation", "Charts", "Watchlist"
-        ])
+        ticker_list = df["Ticker"].tolist()
+        if st.session_state.detail_ticker not in ticker_list:
+            st.session_state.detail_ticker = ticker_list[0]
+
+        def _select_ticker(ticker: str, open_deep_dive: bool = True) -> None:
+            st.session_state.detail_ticker = ticker
+            if open_deep_dive:
+                st.session_state.results_tabs = DEEP_DIVE_TAB
+
+        def _on_table_select(table_key: str) -> None:
+            state = st.session_state.get(table_key)
+            rows = state["selection"]["rows"] if state else []
+            tickers = st.session_state.get("overview_tickers", [])
+            if rows and rows[0] < len(tickers):
+                _select_ticker(tickers[rows[0]])
+
+        def _on_deep_dive_select() -> None:
+            st.session_state.detail_ticker = st.session_state.detail_ticker_select
+
+        tab1, tab_deep, tab2, tab3, tab4, tab5, tab6 = st.tabs(RESULT_TABS, key="results_tabs", on_change="rerun")
 
         with tab1:
             sort_col1, sort_col2, sort_col3, export_col1, export_col2 = st.columns([2, 1, 1, 1, 1])
             with sort_col1:
                 sort_options = [c for c in [
-                    "MarketCap", "Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+                    "MarketCap", "Price", "PE", "Piotroski", "Sloan", "PB", "PS", "PEG", "EV_EBITDA",
                     "ROE", "ROA", "ProfitMargin", "OperatingMargin",
                     "DebtToEquity", "CurrentRatio", "QuickRatio",
                     "6Months", "Year", "Volatility", "Sharpe", "RSI",
@@ -872,68 +898,38 @@ elif current_page == "Screener":
             with sort_col2:
                 sort_asc = st.checkbox("Asc", value=False)
             df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
-        
-            df_display = format_dataframe(df_sorted)
-        
-            display_cols = ["Ticker", "Price", "MarketCap", 
-                          # Price Ratios
-                          "PE", "PB", "PS", "PEG", "EV_EBITDA",
-                          # Profitability
-                          "ROE", "ROA", "ProfitMargin", "OperatingMargin",
-                          # Leverage
-                          "DebtToEquity",
-                          # Liquidity
-                          "CurrentRatio", "QuickRatio",
-                          # Other
-                          "DividendYield", "Beta", "EPSGrowth", "RevenueGrowth",
-                          "RSI", "Sharpe", "Volatility",
-                          "Week", "Month", "6Months", "Year", "Sector"]
-            available_cols = [col for col in display_cols if col in df_display.columns]
-            df_display = df_display[available_cols]
+            st.session_state.overview_tickers = df_sorted["Ticker"].tolist()
 
-            ticker_list = df_sorted["Ticker"].tolist()
-            selected_ticker = st.session_state.detail_ticker
-            if selected_ticker not in ticker_list:
-                selected_ticker = ticker_list[0] if ticker_list else None
+            selected_row = df[df["Ticker"] == st.session_state.detail_ticker].iloc[0]
+            with st.container(key="deep_dive_banner"):
+                banner_text, banner_btn = st.columns([5, 1.3], vertical_alignment="center")
+                with banner_text:
+                    st.markdown(selection_banner_html(selected_row), unsafe_allow_html=True)
+                with banner_btn:
+                    st.button(
+                        "Open Deep Dive →",
+                        key="open_deep_dive",
+                        use_container_width=True,
+                        on_click=_select_ticker,
+                        args=(st.session_state.detail_ticker,),
+                    )
 
-            try:
-                table_event = st.dataframe(
-                    df_display,
-                    use_container_width=True,
-                    height=420,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="screener_results_table",
-                )
-                if (
-                    table_event is not None
-                    and hasattr(table_event, "selection")
-                    and table_event.selection
-                    and table_event.selection.rows
-                ):
-                    row_idx = table_event.selection.rows[0]
-                    selected_ticker = df_sorted.iloc[row_idx]["Ticker"]
-                    st.session_state.detail_ticker = selected_ticker
-            except TypeError:
-                st.dataframe(df_display, use_container_width=True, height=420, hide_index=True)
+            st.caption("Click a row to open its Company Deep Dive. Sub-tabs group secondary ratios by category.")
+            for view_tab, view in zip(st.tabs(list(TABLE_LAYOUTS)), TABLE_LAYOUTS):
+                with view_tab:
+                    table, column_config = build_table(df_sorted, view)
+                    table_key = f"screener_table_{view.lower().replace(' ', '_')}"
+                    st.dataframe(
+                        table,
+                        column_config=column_config,
+                        use_container_width=True,
+                        height=420,
+                        hide_index=True,
+                        on_select=partial(_on_table_select, table_key),
+                        selection_mode="single-row",
+                        key=table_key,
+                    )
 
-            selected_ticker = st.selectbox(
-                "Select stock for full analysis",
-                ticker_list,
-                index=ticker_list.index(selected_ticker) if selected_ticker in ticker_list else 0,
-                key="detail_ticker_select",
-            )
-            st.session_state.detail_ticker = selected_ticker
-
-            if selected_ticker:
-                render_stock_detail_panel(
-                    selected_ticker,
-                    df,
-                    st.session_state.get("last_filter_kwargs"),
-                    fetch_historical_data,
-                )
-        
             with export_col1:
                 csv = df.to_csv(index=False)
                 st.download_button("Export CSV", csv, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
@@ -947,7 +943,7 @@ elif current_page == "Screener":
                     st.download_button("Export XLS", excel_data, f"screener_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 except Exception:
                     pass
-        
+
             wl_col1, wl_col2 = st.columns([4, 1])
             with wl_col1:
                 selected_tickers = st.multiselect("Add to watchlist", df_sorted["Ticker"].tolist(), label_visibility="collapsed")
@@ -957,7 +953,25 @@ elif current_page == "Screener":
                         if ticker not in st.session_state.watchlist:
                             st.session_state.watchlist.append(ticker)
                     st.rerun()
-        
+
+        with tab_deep:
+            if st.session_state.get("detail_ticker_select") != st.session_state.detail_ticker:
+                st.session_state.detail_ticker_select = st.session_state.detail_ticker
+            names = dict(zip(df["Ticker"], df["company_name"].map(clean_company_name)))
+            st.selectbox(
+                "Company",
+                ticker_list,
+                key="detail_ticker_select",
+                format_func=lambda t: f"{t} · {names.get(t, '')}",
+                on_change=_on_deep_dive_select,
+            )
+            render_stock_detail_panel(
+                st.session_state.detail_ticker,
+                df,
+                st.session_state.get("last_filter_kwargs"),
+                fetch_historical_data,
+            )
+
         with tab2:
             # Performance heatmap
             perf_cols = ["Week", "Month", "3Months", "6Months", "Year"]

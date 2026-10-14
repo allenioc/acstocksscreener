@@ -27,6 +27,26 @@ ROW_ALIASES = {
     "gross_profit": ["Gross Profit"],
     "revenue": ["Total Revenue", "Operating Revenue"],
     "cost_of_revenue": ["Cost Of Revenue", "Reconciled Cost Of Revenue"],
+    "operating_income": ["Operating Income", "Total Operating Income As Reported"],
+    "diluted_eps": ["Diluted EPS", "Basic EPS"],
+    "ebitda": ["EBITDA", "Normalized EBITDA"],
+    "stockholders_equity": ["Stockholders Equity", "Common Stock Equity"],
+    "total_debt": ["Total Debt"],
+    "cash": ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
+    "inventory": ["Inventory"],
+    "dividends_paid": ["Cash Dividends Paid", "Common Stock Dividend Paid"],
+}
+
+SIGNAL_CATEGORIES = {
+    "roa_positive": "Profitability",
+    "cfo_positive": "Profitability",
+    "accrual": "Profitability",
+    "roa_up": "Profitability",
+    "leverage_down": "Leverage & Liquidity",
+    "current_ratio_up": "Leverage & Liquidity",
+    "no_dilution": "Leverage & Liquidity",
+    "gross_margin_up": "Operating Efficiency",
+    "asset_turnover_up": "Operating Efficiency",
 }
 
 # Statement period ends for the same fiscal year can differ by a few days across statements.
@@ -155,7 +175,7 @@ def compute_sloan_ratio(
 # ---------------------------------------------------------------------------
 
 def _signal(key: str, label: str, passed: Optional[bool], detail: str) -> dict:
-    return {"key": key, "label": label, "passed": passed, "detail": detail}
+    return {"key": key, "label": label, "passed": passed, "detail": detail, "category": SIGNAL_CATEGORIES[key]}
 
 
 def _fmt_pct(value: Optional[float]) -> str:
@@ -203,7 +223,7 @@ def compute_piotroski_score(
     shares = statement_series(balance_sheet_df, "shares")
 
     result = {"score": None, "max_score": 9, "evaluated": 0, "fiscal_year": None,
-              "prior_year": None, "signals": [], "notes": []}
+              "prior_year": None, "signals": [], "notes": [], "asset_basis": None}
     if len(ni) < 2:
         result["notes"].append("At least two annual income statements are required.")
         return result
@@ -222,6 +242,7 @@ def compute_piotroski_score(
         denom_t, denom_t1 = _at(assets, t), _at(assets, t1)
         denom_basis = "year-end assets"
         result["notes"].append("Only two balance sheets available; ROA and asset turnover use year-end assets.")
+    result["asset_basis"] = denom_basis
 
     ni_t, ni_t1 = _at(ni, t), _at(ni, t1)
     cfo_t = _at(cfo, t)
@@ -230,7 +251,7 @@ def compute_piotroski_score(
     signals = []
     # Profitability
     signals.append(_signal("roa_positive", "Positive ROA", None if roa_t is None else roa_t > 0,
-                           f"ROA {_fmt_pct(roa_t)} ({denom_basis})" if roa_t is not None
+                           f"ROA {_fmt_pct(roa_t)}" if roa_t is not None
                            else "Net income or total assets unavailable."))
     signals.append(_signal("cfo_positive", "Positive operating cash flow",
                            None if cfo_t is None else cfo_t > 0,

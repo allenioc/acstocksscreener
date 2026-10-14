@@ -17,6 +17,8 @@ import requests
 import streamlit as st
 import yfinance as yf
 
+from analytics.fundamentals import STATEMENT_INPUT_FIELDS, derive_fallback_metrics, extract_statement_inputs
+from analytics.quality import compute_piotroski_score, compute_sloan_ratio
 from filter_logic import build_filter_config, apply_screener_filters, any_filter_active
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -55,9 +57,15 @@ UNIVERSE_SIZE_OPTIONS = {
 # ~15 months of calendar days gives >252 trading sessions for 1Y return and the 200-day SMA.
 PRICE_LOOKBACK_DAYS = 460
 RISK_FREE_RATE = 0.04
+BETA_BENCHMARK = "SPY"
 MAX_LIVE_FUNDAMENTALS_FETCH = 1000
-FUNDAMENTAL_WORKERS = 6
+FUNDAMENTAL_WORKERS = 8
 FUNDAMENTALS_CACHE_MAX_AGE_DAYS = 7
+# Rows missing either the quote (.info) or the statements are retried sooner.
+PARTIAL_CACHE_MAX_AGE_DAYS = 1
+# Bump when cached row fields change so stale rows are refetched.
+FUNDAMENTALS_SCHEMA_VERSION = 2
+COMPLETE_SOURCES = "info+statements"
 
 FUNDAMENTAL_NUMERIC_FIELDS = [
     "market_cap", "pe", "forward_pe", "pb", "ps", "ev_ebitda", "peg", "dividend_yield",
@@ -66,6 +74,7 @@ FUNDAMENTAL_NUMERIC_FIELDS = [
     "fifty_two_week_high", "fifty_two_week_low",
 ]
 FUNDAMENTAL_TEXT_FIELDS = ["company_name", "exchange", "country", "sector", "industry"]
+QUALITY_FIELDS = ["piotroski_score", "piotroski_evaluated", "sloan_ratio"]
 
 # Successful fundamentals for this server process; failures are never stored.
 _FUNDAMENTALS_MEMORY: dict[str, dict] = {}
@@ -270,7 +279,20 @@ def _last_or_none(series: pd.Series) -> Optional[float]:
     return _safe_float(series.iloc[-1])
 
 
-def compute_price_metrics(symbol: str, frame: pd.DataFrame) -> dict:
+def _beta(returns: pd.Series, benchmark_returns: Optional[pd.Series]) -> Optional[float]:
+    """Beta vs the benchmark over overlapping daily returns (needs ~3 months of overlap)."""
+    if benchmark_returns is None or benchmark_returns.empty:
+        return None
+    aligned = pd.concat([returns, benchmark_returns], axis=1, join="inner").dropna()
+    if len(aligned) < 60:
+        return None
+    variance = aligned.iloc[:, 1].var()
+    if not variance:
+        return None
+    return _safe_float(aligned.iloc[:, 0].cov(aligned.iloc[:, 1]) / variance)
+
+
+def compute_price_metrics(symbol: str, frame: pd.DataFrame, benchmark_returns: Optional[pd.Series] = None) -> dict:
     """Quote fields, trailing returns, risk metrics and technicals from adjusted OHLCV history."""
     close = frame["Close"].astype(float)
     volume = frame["Volume"].astype(float) if "Volume" in frame.columns else None
@@ -282,6 +304,7 @@ def compute_price_metrics(symbol: str, frame: pd.DataFrame) -> dict:
 
     returns = close.pct_change().dropna().tail(252)
     volatility = float(returns.std() * np.sqrt(252)) if len(returns) >= 20 else None
+    beta_1y = _beta(returns, benchmark_returns)
 
     one_year = _trailing_return(close, 252)
     if one_year is not None:
@@ -340,6 +363,7 @@ def compute_price_metrics(symbol: str, frame: pd.DataFrame) -> dict:
         "year": one_year,
         "volatility": volatility * 100 if volatility is not None else None,
         "sharpe": sharpe,
+        "beta_1y": beta_1y,
         "rsi": rsi,
         "sma20": sma20,
         "sma50": sma50,
@@ -351,7 +375,7 @@ def compute_price_metrics(symbol: str, frame: pd.DataFrame) -> dict:
     }
 
 
-def _download_prices(tickers: list[str], start: str) -> dict[str, dict]:
+def _download_prices(tickers: list[str], start: str, benchmark_returns: Optional[pd.Series] = None) -> dict[str, dict]:
     rows: dict[str, dict] = {}
     try:
         raw = yf.download(
@@ -368,10 +392,21 @@ def _download_prices(tickers: list[str], start: str) -> dict[str, dict]:
         try:
             frame = _extract_ticker_frame(raw, sym)
             if frame is not None:
-                rows[sym] = compute_price_metrics(sym, frame)
+                rows[sym] = compute_price_metrics(sym, frame, benchmark_returns)
         except Exception:
             continue
     return rows
+
+
+def _benchmark_returns(start: str) -> Optional[pd.Series]:
+    try:
+        raw = yf.download(BETA_BENCHMARK, start=start, auto_adjust=True, progress=False)
+        frame = _extract_ticker_frame(raw, BETA_BENCHMARK)
+    except Exception:
+        return None
+    if frame is None:
+        return None
+    return frame["Close"].astype(float).pct_change().dropna().tail(252)
 
 
 def fetch_price_data_batch(tickers: list[str]) -> pd.DataFrame:
@@ -380,14 +415,15 @@ def fetch_price_data_batch(tickers: list[str]) -> pd.DataFrame:
         return pd.DataFrame()
 
     start = (date.today() - timedelta(days=PRICE_LOOKBACK_DAYS)).isoformat()
+    benchmark = _benchmark_returns(start)
     rows: dict[str, dict] = {}
     chunk_size = 100
     for i in range(0, len(tickers), chunk_size):
-        rows.update(_download_prices(tickers[i : i + chunk_size], start))
+        rows.update(_download_prices(tickers[i : i + chunk_size], start, benchmark))
 
     missing = [sym for sym in tickers if sym not in rows]
     for i in range(0, len(missing), chunk_size):
-        rows.update(_download_prices(missing[i : i + chunk_size], start))
+        rows.update(_download_prices(missing[i : i + chunk_size], start, benchmark))
 
     return pd.DataFrame(list(rows.values()))
 
@@ -396,8 +432,16 @@ def fetch_price_data_batch(tickers: list[str]) -> pd.DataFrame:
 # Fundamentals
 # ---------------------------------------------------------------------------
 
-def _has_fundamentals(row: dict) -> bool:
+def _has_info_fundamentals(row: dict) -> bool:
     return any(_safe_float(row.get(field)) is not None for field in FUNDAMENTAL_NUMERIC_FIELDS if field != "market_cap")
+
+
+def _has_statement_inputs(row: dict) -> bool:
+    return any(_safe_float(row.get(field)) is not None for field in STATEMENT_INPUT_FIELDS)
+
+
+def _has_fundamentals(row: dict) -> bool:
+    return _has_info_fundamentals(row) or _has_statement_inputs(row)
 
 
 def _parse_info(symbol: str, info: dict) -> dict:
@@ -450,29 +494,99 @@ def _parse_info(symbol: str, info: dict) -> dict:
     }
 
 
-def _fetch_info_row(symbol: str, rate_limited: threading.Event) -> tuple[dict, str, str]:
-    """Return (row, status, error). Retries transient errors once; stops the scan's live fetches on rate limits."""
+def _is_rate_limit(exc: Exception) -> bool:
+    return "RateLimit" in type(exc).__name__ or "Too Many Requests" in str(exc)
+
+
+def _fetch_info(ticker: yf.Ticker, symbol: str, blocked: threading.Event) -> tuple[dict, str]:
+    """Parsed `.info` row (possibly empty) and an error string. Retries transient errors once."""
     error = ""
     for attempt in range(2):
-        if rate_limited.is_set():
-            return {"ticker": symbol}, "failed", "Yahoo rate limit hit during this scan; will retry next scan"
+        if blocked.is_set():
+            return {}, "quote rate-limited earlier in this scan"
         try:
-            info = yf.Ticker(symbol).info or {}
+            info = ticker.info or {}
         except Exception as exc:
             error = f"{type(exc).__name__}: {str(exc)[:120]}"
-            if "RateLimit" in type(exc).__name__:
-                rate_limited.set()
-                return {"ticker": symbol}, "failed", error
+            if _is_rate_limit(exc):
+                blocked.set()
+                return {}, error
             time.sleep(1.0 * (attempt + 1))
             continue
         try:
             row = _parse_info(symbol, info)
         except Exception as exc:
-            return {"ticker": symbol}, "failed", f"parse error: {exc}"
-        if _has_fundamentals(row):
-            return row, "fetched", ""
-        return row, "failed", "no fundamental fields returned by Yahoo"
-    return {"ticker": symbol}, "failed", error or "unknown error"
+            return {}, f"parse error: {exc}"
+        return (row, "") if _has_info_fundamentals(row) else (row, "no quote fundamentals returned")
+    return {}, error or "unknown error"
+
+
+def _fetch_statement_fields(ticker: yf.Ticker, blocked: threading.Event) -> tuple[dict, str]:
+    """`fs_*` inputs plus Piotroski / Sloan from annual statements."""
+    if blocked.is_set():
+        return {}, "statements rate-limited earlier in this scan"
+    try:
+        income, balance, cashflow = ticker.income_stmt, ticker.balance_sheet, ticker.cashflow
+    except Exception as exc:
+        if _is_rate_limit(exc):
+            blocked.set()
+        return {}, f"{type(exc).__name__}: {str(exc)[:120]}"
+    try:
+        quarterly_income = ticker.quarterly_income_stmt
+    except Exception:
+        quarterly_income = None
+
+    fields = extract_statement_inputs(income, balance, cashflow, quarterly_income)
+    if not _has_statement_inputs(fields):
+        return {}, "no annual statements returned"
+    try:
+        fscore = compute_piotroski_score(income, balance, cashflow)
+        sloan = compute_sloan_ratio(income, balance, cashflow)
+    except Exception:
+        fscore, sloan = {"score": None, "evaluated": 0}, {"ratio": None}
+    fields["piotroski_score"] = fscore["score"]
+    fields["piotroski_evaluated"] = fscore["evaluated"] if fscore["score"] is not None else None
+    fields["sloan_ratio"] = sloan["ratio"] * 100 if sloan["ratio"] is not None else None
+    return fields, ""
+
+
+def _fetch_fundamentals_row(
+    symbol: str,
+    info_blocked: threading.Event,
+    statements_blocked: threading.Event,
+) -> tuple[dict, str, str]:
+    """
+    Return (row, status, error) combining `.info` with annual statements.
+
+    Statements come from a different Yahoo endpoint than `.info`, so they still fill in
+    fundamentals when the quote endpoint is rate-limited or empty.
+    """
+    ticker = yf.Ticker(symbol)
+    info_row, info_error = _fetch_info(ticker, symbol, info_blocked)
+    statement_fields, statements_error = _fetch_statement_fields(ticker, statements_blocked)
+
+    row = {"ticker": symbol, **info_row, **statement_fields}
+    sources = [name for name, ok in (("info", _has_info_fundamentals(row)), ("statements", bool(statement_fields))) if ok]
+    row["fundamentals_sources"] = "+".join(sources)
+    row["schema_version"] = FUNDAMENTALS_SCHEMA_VERSION
+
+    errors = "; ".join(e for e in (info_error and f"quote: {info_error}", statements_error and f"statements: {statements_error}") if e)
+    if not sources:
+        return {"ticker": symbol}, "failed", errors or "no data returned by Yahoo"
+    return row, "fetched", errors
+
+
+def _is_fresh(record: dict) -> bool:
+    """Current schema, non-empty, and within the max age for complete or partial rows."""
+    if _safe_float(record.get("schema_version")) != FUNDAMENTALS_SCHEMA_VERSION or not _has_fundamentals(record):
+        return False
+    try:
+        cached_on = datetime.strptime(str(record.get("cache_date")), "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    complete = record.get("fundamentals_sources") == COMPLETE_SOURCES
+    max_age = FUNDAMENTALS_CACHE_MAX_AGE_DAYS if complete else PARTIAL_CACHE_MAX_AGE_DAYS
+    return cached_on >= date.today() - timedelta(days=max_age)
 
 
 def _read_disk_cache() -> dict[str, dict]:
@@ -485,18 +599,7 @@ def _read_disk_cache() -> dict[str, dict]:
         return {}
     if df.empty or "ticker" not in df.columns:
         return {}
-
-    cutoff = date.today() - timedelta(days=FUNDAMENTALS_CACHE_MAX_AGE_DAYS)
-    rows: dict[str, dict] = {}
-    for record in df.to_dict("records"):
-        try:
-            cached_on = datetime.strptime(str(record.get("cache_date")), "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        if cached_on < cutoff or not _has_fundamentals(record):
-            continue
-        rows[normalize_ticker(record["ticker"])] = record
-    return rows
+    return {normalize_ticker(r["ticker"]): r for r in df.to_dict("records") if _is_fresh(r)}
 
 
 def _write_disk_cache(new_rows: list[dict]) -> None:
@@ -515,11 +618,11 @@ def _write_disk_cache(new_rows: list[dict]) -> None:
 
 def fetch_fundamentals_cached(tickers, progress_callback=None) -> pd.DataFrame:
     """
-    Fundamentals for each ticker from memory cache, disk cache, or live yfinance `.info`.
+    Fundamentals for each ticker from memory cache, disk cache, or live yfinance (`.info` + annual statements).
 
-    Only successful rows are cached, so a rate-limited or failed call is retried on the next scan
-    instead of being stored as permanent N/A. Adds `fundamentals_status`
-    (cached / fetched / failed / skipped) and `fundamentals_error` columns.
+    Only rows with data are cached, so a rate-limited or failed call is retried on the next scan
+    instead of being stored as permanent N/A; rows missing one source expire after a day.
+    Adds `fundamentals_status` (cached / fetched / failed / skipped) and `fundamentals_error` columns.
     """
     tickers = [normalize_ticker(t) for t in tickers]
     disk = _read_disk_cache()
@@ -527,7 +630,9 @@ def fetch_fundamentals_cached(tickers, progress_callback=None) -> pd.DataFrame:
     results: dict[str, dict] = {}
     to_fetch = []
     for sym in tickers:
-        cached = _FUNDAMENTALS_MEMORY.get(sym) or disk.get(sym)
+        cached = _FUNDAMENTALS_MEMORY.get(sym)
+        if cached is None or not _is_fresh(cached):
+            cached = disk.get(sym)
         if cached is not None:
             results[sym] = {**cached, "fundamentals_status": "cached", "fundamentals_error": ""}
         else:
@@ -543,10 +648,14 @@ def fetch_fundamentals_cached(tickers, progress_callback=None) -> pd.DataFrame:
         }
 
     fetched_rows = []
-    rate_limited = threading.Event()
+    info_blocked, statements_blocked = threading.Event(), threading.Event()
+    today = str(date.today())
     if to_fetch:
         with ThreadPoolExecutor(max_workers=FUNDAMENTAL_WORKERS) as pool:
-            futures = {pool.submit(_fetch_info_row, sym, rate_limited): sym for sym in to_fetch}
+            futures = {
+                pool.submit(_fetch_fundamentals_row, sym, info_blocked, statements_blocked): sym
+                for sym in to_fetch
+            }
             for done, future in enumerate(as_completed(futures), start=1):
                 sym = futures[future]
                 try:
@@ -555,7 +664,7 @@ def fetch_fundamentals_cached(tickers, progress_callback=None) -> pd.DataFrame:
                     row, status, error = {"ticker": sym}, "failed", str(exc)
                 results[sym] = {**row, "fundamentals_status": status, "fundamentals_error": error}
                 if status == "fetched":
-                    _FUNDAMENTALS_MEMORY[sym] = row
+                    _FUNDAMENTALS_MEMORY[sym] = {**row, "cache_date": today}
                     fetched_rows.append(row)
                 if progress_callback:
                     progress_callback(done, len(to_fetch))
@@ -604,12 +713,14 @@ LEGACY_ALIASES = {
     "SMA200": "sma200",
     "MACD_Bullish": "macd_bullish",
     "BB_Position": "bb_position",
+    "Piotroski": "piotroski_score",
+    "Sloan": "sloan_ratio",
 }
 
 PRICE_NUMERIC_FIELDS = [
     "price", "previous_close", "open", "day_high", "day_low", "volume", "average_volume",
     "change_percent", "week", "month", "quarter", "six_month", "year", "volatility",
-    "sharpe", "rsi", "sma20", "sma50", "sma200", "hist_52w_high", "hist_52w_low",
+    "sharpe", "beta_1y", "rsi", "sma20", "sma50", "sma200", "hist_52w_high", "hist_52w_low",
 ]
 
 
@@ -641,22 +752,28 @@ def normalize_stock_dataframe(
             base[col] = base[f"{col}_fund"].where(base[f"{col}_fund"].notna() & (base[f"{col}_fund"] != ""), base[col])
             base = base.drop(columns=[f"{col}_fund"])
 
-    for col in FUNDAMENTAL_NUMERIC_FIELDS + PRICE_NUMERIC_FIELDS:
+    for col in FUNDAMENTAL_NUMERIC_FIELDS + PRICE_NUMERIC_FIELDS + STATEMENT_INPUT_FIELDS + QUALITY_FIELDS:
         if col not in base.columns:
             base[col] = np.nan
         base[col] = pd.to_numeric(base[col], errors="coerce")
-    for col in FUNDAMENTAL_TEXT_FIELDS + ["macd_bullish", "bb_position", "fundamentals_status", "fundamentals_error"]:
+    for col in FUNDAMENTAL_TEXT_FIELDS + [
+        "macd_bullish", "bb_position", "fundamentals_status", "fundamentals_error", "fundamentals_sources",
+    ]:
         if col not in base.columns:
             base[col] = None
+
+    derived = [derive_fallback_metrics(rec) for rec in base.to_dict("records")]
+    fills = pd.DataFrame([updates for updates, _ in derived], index=base.index)
+    for col in fills.columns:
+        base[col] = base[col].fillna(fills[col])
+    base["derived_fields"] = [",".join(names) for _, names in derived]
 
     base["fifty_two_week_high"] = base["fifty_two_week_high"].fillna(base["hist_52w_high"])
     base["fifty_two_week_low"] = base["fifty_two_week_low"].fillna(base["hist_52w_low"])
     base["company_name"] = base["company_name"].fillna(base["ticker"])
 
-    for alias, source in LEGACY_ALIASES.items():
-        base[alias] = base[source]
-
-    return base
+    aliases = pd.DataFrame({alias: base[source] for alias, source in LEGACY_ALIASES.items()}, index=base.index)
+    return pd.concat([base.drop(columns=list(LEGACY_ALIASES), errors="ignore"), aliases], axis=1)
 
 
 def format_screener_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -720,6 +837,8 @@ def run_screener_pipeline(
         "fundamentals_failed": 0,
         "fundamentals_skipped": 0,
         "fundamentals_failed_samples": [],
+        "fundamentals_partial": 0,
+        "rows_with_derived": 0,
         "fetch_failures": 0,
         "matched": 0,
         "filter_rejections": {},
@@ -767,6 +886,9 @@ def run_screener_pipeline(
         report(0.9, "Normalizing and filtering...")
         normalized = normalize_stock_dataframe(universe_df, price_df, fundamentals_df)
         debug["fetch_failures"] = len(tickers) - int(normalized["price"].notna().sum())
+        loaded = normalized["fundamentals_status"].isin(["cached", "fetched"])
+        debug["fundamentals_partial"] = int((loaded & (normalized["fundamentals_sources"] != COMPLETE_SOURCES)).sum())
+        debug["rows_with_derived"] = int((normalized["derived_fields"] != "").sum())
 
         filter_cfg = build_filter_config(**filter_kwargs)
         filtered, rejections, excluded_samples = apply_screener_filters(normalized, filter_cfg)
@@ -783,7 +905,8 @@ def run_screener_pipeline(
             f"prices_ok={debug['price_fetched']} prices_failed={len(tickers) - debug['price_fetched']} "
             f"fundamentals_ok={debug['fundamentals_ok']} (cached={debug['fundamentals_cached']}, "
             f"live={debug['fundamentals_live']}) fundamentals_failed={debug['fundamentals_failed']} "
-            f"skipped={debug['fundamentals_skipped']} matched={debug['matched']}",
+            f"skipped={debug['fundamentals_skipped']} partial={debug['fundamentals_partial']} "
+            f"rows_with_derived={debug['rows_with_derived']} matched={debug['matched']}",
             flush=True,
         )
         if debug["fundamentals_failed_samples"]:

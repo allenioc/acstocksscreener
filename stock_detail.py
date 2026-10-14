@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import math
 from typing import Any, Optional
 
@@ -9,6 +10,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from analytics.fundamentals import (
+    DERIVED_FIELD_LABELS,
+    derive_fallback_metrics,
+    describe_derived,
+    extract_statement_inputs,
+)
 from analytics.quality import compute_piotroski_score, compute_sloan_ratio, piotroski_interpretation
 from filter_logic import build_filter_config, any_filter_active
 from theme import THEME, apply_dark_plotly_layout
@@ -81,6 +88,8 @@ def extract_metrics(row: pd.Series) -> dict:
         "industry": str(industry) if industry is not None and pd.notna(industry) else None,
         "month": _num(_get(row, "month", "Month")),
         "year": _num(_get(row, "year", "Year")),
+        "dividend_yield": _num(_get(row, "dividend_yield", "DividendYield")),
+        "beta_1y": _num(_get(row, "beta_1y")),
     }
     for snake, pascal in KEY_METRICS:
         if snake in ("sector", "industry"):
@@ -376,13 +385,14 @@ def build_narrative(metrics: dict, flags: list[str], sector_ctx: dict, passed: l
 def _fmt_money(val: Optional[float]) -> str:
     if val is None:
         return "Data unavailable"
-    if val >= 1e12:
-        return f"${val/1e12:.2f}T"
-    if val >= 1e9:
-        return f"${val/1e9:.2f}B"
-    if val >= 1e6:
-        return f"${val/1e6:.2f}M"
-    return f"${val:,.2f}"
+    sign, a = ("-" if val < 0 else ""), abs(val)
+    if a >= 1e12:
+        return f"{sign}${a/1e12:.2f}T"
+    if a >= 1e9:
+        return f"{sign}${a/1e9:.2f}B"
+    if a >= 1e6:
+        return f"{sign}${a/1e6:.2f}M"
+    return f"{sign}${a:,.2f}"
 
 
 def _fmt_ratio(val: Optional[float]) -> str:
@@ -400,83 +410,133 @@ def _fmt_vol(val: Optional[float]) -> str:
 FINANCIAL_SECTORS = {"Financial Services", "Financials", "Financial"}
 
 
-def _badge(text: str, level: str) -> str:
-    color = {"red": THEME["negative"], "green": THEME["positive"]}.get(level, THEME["text_muted"])
+PIOTROSKI_CATEGORIES = ["Profitability", "Leverage & Liquidity", "Operating Efficiency"]
+SLOAN_GAUGE_RANGE = 30.0
+
+
+def _html(text: Any) -> str:
+    """Escape for raw HTML; `$` is encoded so Streamlit markdown doesn't treat pairs as LaTeX."""
+    return html.escape(str(text)).replace("$", "&#36;")
+
+
+def _segment_class(passed: Optional[bool]) -> str:
+    return "pass" if passed is True else "fail" if passed is False else "na"
+
+
+def _fscore_tile(fscore: dict) -> str:
+    if fscore["score"] is None:
+        note = fscore["notes"][0] if fscore["notes"] else "Annual statements unavailable."
+        return (
+            '<div class="fq-tile"><div class="fq-tile-label">Piotroski F-Score</div>'
+            '<div class="fq-tile-value muted">Data unavailable</div>'
+            f'<div class="fq-tile-sub">{_html(note)}</div></div>'
+        )
+    segments = "".join(
+        f'<span class="fq-seg {_segment_class(s["passed"])}" title="{_html(s["label"])}"></span>'
+        for s in fscore["signals"]
+    )
+    interpretation = piotroski_interpretation(fscore["score"], fscore["evaluated"])
     return (
-        f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;'
-        f'font-weight:600;color:{color};border:1px solid {color};">{text}</span>'
+        '<div class="fq-tile"><div class="fq-tile-label">Piotroski F-Score</div>'
+        f'<div class="fq-tile-value">{fscore["score"]}<span class="fq-tile-denom">/9</span></div>'
+        f'<div class="fq-segments">{segments}</div>'
+        f'<div class="fq-tile-sub">{_html(interpretation)} · {_html(fscore["fiscal_year"])} vs '
+        f'{_html(fscore["prior_year"])}</div></div>'
     )
 
 
-def render_quality_card(ticker: str, sector: Optional[str]) -> None:
-    """Sloan accrual ratio and Piotroski F-score from the latest annual statements."""
-    st.markdown("---")
+def _sloan_tile(sloan: dict) -> str:
+    badge = sloan["badge"]
+    if sloan["ratio"] is None:
+        return (
+            '<div class="fq-tile"><div class="fq-tile-label">Sloan Accrual Ratio</div>'
+            '<div class="fq-tile-value muted">Data unavailable</div>'
+            f'<div class="fq-tile-sub">{_html(badge["detail"])}</div></div>'
+        )
+    pct = sloan["ratio"] * 100
+    marker = (max(-SLOAN_GAUGE_RANGE, min(SLOAN_GAUGE_RANGE, pct)) + SLOAN_GAUGE_RANGE) / (2 * SLOAN_GAUGE_RANGE) * 100
+    prefix = "⚠️ Red Flag" if badge["level"] == "red" else "✓ Green Flag"
+    inputs = (
+        f'FY {sloan["period"].year}: NI {_fmt_money(sloan["net_income"])} · '
+        f'CFO {_fmt_money(sloan["operating_cash_flow"])} · Assets {_fmt_money(sloan["total_assets"])}'
+    )
+    return (
+        '<div class="fq-tile"><div class="fq-tile-label">Sloan Accrual Ratio</div>'
+        f'<div class="fq-tile-value {badge["level"]}">{pct:+.2f}%</div>'
+        '<div class="fq-gauge"><span class="zone strong"></span><span class="zone healthy"></span>'
+        f'<span class="zone risk"></span><span class="fq-marker" style="left:{marker:.1f}%"></span></div>'
+        '<div class="fq-gauge-scale"><span>−30%</span><span>−10%</span><span>+10%</span><span>+30%</span></div>'
+        f'<span class="fq-badge {badge["level"]}">{_html(prefix)}: {_html(badge["label"])}</span>'
+        f'<div class="fq-tile-sub">{_html(badge["detail"])}<br>{_html(inputs)}</div></div>'
+    )
+
+
+def _category_column(category: str, signals: list[dict]) -> str:
+    items = [s for s in signals if s["category"] == category]
+    passed = sum(1 for s in items if s["passed"] is True)
+    pills = []
+    for s in items:
+        cls = _segment_class(s["passed"])
+        icon = {"pass": "✓", "fail": "✕", "na": "—"}[cls]
+        value = s["detail"] if s["passed"] is not None else "Not reported"
+        pills.append(
+            f'<div class="fq-pill {cls}" title="{_html(s["detail"])}">'
+            f'<span class="fq-pill-icon">{icon}</span>'
+            f'<span class="fq-pill-text"><span class="fq-pill-label">{_html(s["label"])}</span>'
+            f'<span class="fq-pill-value">{_html(value)}</span></span></div>'
+        )
+    return (
+        f'<div class="fq-cat"><div class="fq-cat-head"><span>{_html(category)}</span>'
+        f'<span class="fq-cat-count">{passed}/{len(items)}</span></div>{"".join(pills)}</div>'
+    )
+
+
+def render_quality_card(ticker: str, sector: Optional[str], annual: dict) -> None:
+    """Piotroski F-score and Sloan accrual ratio from the latest annual statements."""
     st.markdown('<div class="section-header">Earnings Quality & Balance Sheet Health</div>', unsafe_allow_html=True)
 
-    with st.spinner("Loading annual statements..."):
-        annual = fetch_financial_statements(ticker, "annual")
     income, balance, cashflow = annual.get("income"), annual.get("balance"), annual.get("cashflow")
     sloan = compute_sloan_ratio(income, balance, cashflow)
     fscore = compute_piotroski_score(income, balance, cashflow)
 
-    with st.container(border=True):
-        left, right = st.columns(2)
+    with st.container(key=f"quality_card_{ticker}"):
+        left, right = st.columns(2, gap="medium")
         with left:
-            st.caption("Sloan Accrual Ratio — (Net Income − Operating Cash Flow) / Total Assets")
-            badge = sloan["badge"]
-            if sloan["ratio"] is None:
-                st.metric("Sloan Ratio", "Data unavailable")
-                st.markdown(_badge(badge["label"], "unavailable"), unsafe_allow_html=True)
-                st.caption(badge["detail"])
-            else:
-                st.metric("Sloan Ratio", f"{sloan['ratio'] * 100:+.2f}%")
-                prefix = "⚠️ Red Flag" if badge["level"] == "red" else "Green Flag"
-                st.markdown(_badge(f"{prefix}: {badge['label']}", badge["level"]), unsafe_allow_html=True)
-                st.caption(
-                    f"{badge['detail']} FY {sloan['period'].year}: net income {_fmt_money(sloan['net_income'])}, "
-                    f"operating cash flow {_fmt_money(sloan['operating_cash_flow'])}, "
-                    f"total assets {_fmt_money(sloan['total_assets'])}."
-                )
-
+            st.markdown(_fscore_tile(fscore), unsafe_allow_html=True)
         with right:
-            st.caption("Piotroski F-Score — 9 binary profitability, leverage and efficiency tests")
-            if fscore["score"] is None:
-                st.metric("F-Score", "Data unavailable")
-                for note in fscore["notes"]:
-                    st.caption(note)
-            else:
-                st.metric("F-Score", f"{fscore['score']}/9")
-                st.caption(
-                    f"{piotroski_interpretation(fscore['score'], fscore['evaluated'])} · "
-                    f"{fscore['fiscal_year']} vs {fscore['prior_year']}"
-                )
-                for note in fscore["notes"]:
-                    st.caption(note)
+            st.markdown(_sloan_tile(sloan), unsafe_allow_html=True)
 
         if fscore["signals"]:
-            rows = []
-            for sig in fscore["signals"]:
-                if sig["passed"] is True:
-                    icon, color = "✅", THEME["positive"]
-                elif sig["passed"] is False:
-                    icon, color = "❌", THEME["negative"]
-                else:
-                    icon, color = "—", THEME["text_muted"]
-                rows.append(
-                    f'<div style="display:flex;gap:10px;padding:3px 0;font-size:13px;">'
-                    f'<span style="width:18px;color:{color};">{icon}</span>'
-                    f'<span style="color:{THEME["text_secondary"]};min-width:260px;">{sig["label"]}</span>'
-                    f'<span style="color:{THEME["text_muted"]};">{sig["detail"]}</span></div>'
-                )
-            st.markdown("".join(rows), unsafe_allow_html=True)
+            for col, category in zip(st.columns(3, gap="medium"), PIOTROSKI_CATEGORIES):
+                with col:
+                    st.markdown(_category_column(category, fscore["signals"]), unsafe_allow_html=True)
 
+        notes = list(fscore["notes"])
+        if fscore.get("asset_basis"):
+            notes.append(f"ROA and asset turnover use {fscore['asset_basis']}.")
         if sector in FINANCIAL_SECTORS:
-            st.caption(
+            notes.append(
                 "Banks and insurers fund operations through deposits and float, so operating cash flow, "
-                "gross margin and current ratio are not comparable to industrial companies. Interpret these "
-                "scores with caution."
+                "gross margin and current ratio are not comparable to industrial companies."
             )
-        st.caption("Based on the two most recent annual reports from Yahoo Finance. Educational analysis only.")
+        notes.append("Based on the two most recent annual reports from Yahoo Finance. Educational analysis only.")
+        st.markdown(
+            "".join(f'<div class="fq-note">{_html(n)}</div>' for n in notes),
+            unsafe_allow_html=True,
+        )
+
+
+def _fill_from_statements(metrics: dict, ticker: str, annual: dict) -> list[str]:
+    """Fill metrics the screener row is still missing from this ticker's statements."""
+    if all(metrics.get(f) is not None for f in DERIVED_FIELD_LABELS):
+        return []
+    quarterly = fetch_financial_statements(ticker, "quarterly")
+    inputs = extract_statement_inputs(
+        annual.get("income"), annual.get("balance"), annual.get("cashflow"), quarterly.get("income")
+    )
+    updates, names = derive_fallback_metrics({**inputs, **metrics})
+    metrics.update(updates)
+    return names
 
 
 def render_stock_detail_panel(
@@ -495,6 +555,11 @@ def render_stock_detail_panel(
 
     row = match.iloc[0]
     metrics = extract_metrics(row)
+    with st.spinner("Loading financial statements..."):
+        annual = fetch_financial_statements(metrics["ticker"], "annual")
+    derived = [f for f in str(_get(row, "derived_fields") or "").split(",") if f]
+    derived += [f for f in _fill_from_statements(metrics, metrics["ticker"], annual) if f not in derived]
+
     confidence, missing_fields = data_confidence(metrics)
     flags = detect_red_flags(metrics)
     sector_ctx = sector_context(metrics, df)
@@ -502,11 +567,10 @@ def render_stock_detail_panel(
     score = full_picture_score(metrics, flags, confidence)
     narrative = build_narrative(metrics, flags, sector_ctx, passed)
 
-    st.markdown("---")
     st.markdown('<div class="section-header">Full Picture Analysis</div>', unsafe_allow_html=True)
     st.markdown(
         f"**{metrics['ticker']}** · {metrics['company_name']}  \n"
-        f"{metrics.get('sector') or 'Data unavailable'}"
+        f"{metrics.get('sector') or 'Sector unavailable'}"
         f"{(' · ' + metrics['industry']) if metrics.get('industry') else ''}",
         unsafe_allow_html=True,
     )
@@ -524,6 +588,12 @@ def render_stock_detail_panel(
         st.metric("Price", _fmt_money(price) if price is not None else "Data unavailable")
 
     st.markdown(f'<p style="color:{THEME["text_secondary"]};font-size:13px;">{narrative}</p>', unsafe_allow_html=True)
+    if derived:
+        st.markdown(
+            f'<div class="fq-note">ⓘ Yahoo quote data did not include {_html(describe_derived(derived))}; '
+            "these were derived from the latest financial statements (TTM where available) and current price.</div>",
+            unsafe_allow_html=True,
+        )
 
     m1, m2, m3, m4 = st.columns(4)
     with m1:
@@ -594,7 +664,7 @@ def render_stock_detail_panel(
             for m in missing_fields:
                 st.write(f"• {m}: Data unavailable")
 
-    render_quality_card(metrics["ticker"], metrics.get("sector"))
+    render_quality_card(metrics["ticker"], metrics.get("sector"), annual)
     render_financial_statements(metrics["ticker"])
 
     st.caption("Rule-based analysis for educational purposes only. Not financial advice. No buy/sell recommendation.")
