@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date, datetime
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta
 from io import StringIO
 from typing import Optional
 
@@ -35,6 +38,12 @@ CANADIAN_TICKERS = [
 ]
 
 EXCLUDE_SYMBOL_PATTERN = re.compile(r"[\^=\$\+]")
+# Nasdaq Trader dotted suffixes for units, warrants and rights (class shares like .A/.B are kept).
+NON_SHARE_SUFFIXES = {"U", "W", "WS", "WT", "R", "RT"}
+EXCLUDE_NAME_PATTERN = re.compile(
+    r"\b(warrants?|rights?|preferred|units?|notes due|debentures?)\b", re.IGNORECASE
+)
+NON_US_SUFFIXES = (".TO", ".V", ".NE", ".CN")
 
 UNIVERSE_SIZE_OPTIONS = {
     "Top 100": 100,
@@ -42,6 +51,24 @@ UNIVERSE_SIZE_OPTIONS = {
     "Top 1000": 1000,
     "Full universe": None,
 }
+
+# ~15 months of calendar days gives >252 trading sessions for 1Y return and the 200-day SMA.
+PRICE_LOOKBACK_DAYS = 460
+RISK_FREE_RATE = 0.04
+MAX_LIVE_FUNDAMENTALS_FETCH = 1000
+FUNDAMENTAL_WORKERS = 6
+FUNDAMENTALS_CACHE_MAX_AGE_DAYS = 7
+
+FUNDAMENTAL_NUMERIC_FIELDS = [
+    "market_cap", "pe", "forward_pe", "pb", "ps", "ev_ebitda", "peg", "dividend_yield",
+    "beta", "roe", "roa", "profit_margin", "operating_margin", "debt_to_equity",
+    "current_ratio", "quick_ratio", "revenue_growth", "earnings_growth",
+    "fifty_two_week_high", "fifty_two_week_low",
+]
+FUNDAMENTAL_TEXT_FIELDS = ["company_name", "exchange", "country", "sector", "industry"]
+
+# Successful fundamentals for this server process; failures are never stored.
+_FUNDAMENTALS_MEMORY: dict[str, dict] = {}
 
 
 def _safe_float(value) -> Optional[float]:
@@ -64,6 +91,14 @@ def _safe_float(value) -> Optional[float]:
     return f
 
 
+def normalize_ticker(symbol) -> str:
+    """Uppercase, strip, and convert US class-share dots to Yahoo's dash format (BRK.B -> BRK-B)."""
+    s = str(symbol).strip().upper()
+    if s.endswith(NON_US_SUFFIXES):
+        return s
+    return s.replace(".", "-")
+
+
 def _is_common_stock_symbol(symbol) -> bool:
     if symbol is None or (isinstance(symbol, float) and np.isnan(symbol)):
         return False
@@ -72,9 +107,18 @@ def _is_common_stock_symbol(symbol) -> bool:
         return False
     if EXCLUDE_SYMBOL_PATTERN.search(symbol):
         return False
-    if len(symbol) > 6:
+    if "." in symbol and symbol.rsplit(".", 1)[1].upper() in NON_SHARE_SUFFIXES:
+        return False
+    if len(symbol) > 7:
         return False
     return symbol.replace(".", "").isalnum()
+
+
+def _is_excluded_security_name(name) -> bool:
+    text = str(name or "")
+    if "common units" in text.lower():
+        return False
+    return bool(EXCLUDE_NAME_PATTERN.search(text))
 
 
 def load_us_symbols_from_nasdaq() -> pd.DataFrame:
@@ -84,7 +128,7 @@ def load_us_symbols_from_nasdaq() -> pd.DataFrame:
     try:
         nasdaq_resp = requests.get(NASDAQ_LISTED_URL, timeout=20)
         nasdaq_resp.raise_for_status()
-        nasdaq_df = pd.read_csv(StringIO(nasdaq_resp.text), sep="|")
+        nasdaq_df = pd.read_csv(StringIO(nasdaq_resp.text), sep="|", keep_default_na=False)
         nasdaq_df = nasdaq_df.rename(columns={
             "Symbol": "ticker",
             "Security Name": "company_name",
@@ -98,7 +142,7 @@ def load_us_symbols_from_nasdaq() -> pd.DataFrame:
     try:
         other_resp = requests.get(OTHER_LISTED_URL, timeout=20)
         other_resp.raise_for_status()
-        other_df = pd.read_csv(StringIO(other_resp.text), sep="|")
+        other_df = pd.read_csv(StringIO(other_resp.text), sep="|", keep_default_na=False)
         other_df = other_df.rename(columns={
             "ACT Symbol": "ticker",
             "Security Name": "company_name",
@@ -114,7 +158,7 @@ def load_us_symbols_from_nasdaq() -> pd.DataFrame:
 
     df = pd.concat(frames, ignore_index=True)
     df["ticker"] = df["ticker"].astype(str).str.strip()
-    df = df[df["ticker"].notna() & (df["ticker"] != "nan")]
+    df = df[df["ticker"] != ""]
 
     if "Test Issue" in df.columns:
         df = df[df["Test Issue"].astype(str).str.upper() != "Y"]
@@ -122,6 +166,8 @@ def load_us_symbols_from_nasdaq() -> pd.DataFrame:
         df = df[df["ETF"].astype(str).str.upper() != "Y"]
 
     df = df[df["ticker"].apply(_is_common_stock_symbol)]
+    df = df[~df["company_name"].apply(_is_excluded_security_name)]
+    df["ticker"] = df["ticker"].apply(normalize_ticker)
     df = df.drop_duplicates(subset=["ticker"], keep="first")
     df["priority"] = 5000
     return df[["ticker", "company_name", "exchange", "country", "priority"]]
@@ -131,11 +177,12 @@ def load_local_symbols_backup() -> pd.DataFrame:
     """Load curated fallback symbol list."""
     if not os.path.exists(BACKUP_PATH):
         return pd.DataFrame(columns=["ticker", "company_name", "exchange", "country", "priority"])
-    df = pd.read_csv(BACKUP_PATH)
-    df["ticker"] = df["ticker"].astype(str).str.strip()
+    df = pd.read_csv(BACKUP_PATH, keep_default_na=False, na_values={"priority": [""]})
+    df = df[df["ticker"].apply(_is_common_stock_symbol)]
+    df["ticker"] = df["ticker"].apply(normalize_ticker)
     if "priority" not in df.columns:
         df["priority"] = 9999
-    return df
+    return df.drop_duplicates(subset=["ticker"], keep="first")
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -171,7 +218,9 @@ def load_symbol_universe(markets: tuple, universe_size: str) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame(columns=["ticker", "company_name", "exchange", "country", "priority"])
 
-    universe = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["ticker"], keep="first")
+    universe = pd.concat(frames, ignore_index=True)
+    universe["ticker"] = universe["ticker"].apply(normalize_ticker)
+    universe = universe.drop_duplicates(subset=["ticker"], keep="first")
     universe = universe.sort_values(["priority", "ticker"], ascending=[True, True])
 
     limit = UNIVERSE_SIZE_OPTIONS.get(universe_size)
@@ -181,211 +230,387 @@ def load_symbol_universe(markets: tuple, universe_size: str) -> pd.DataFrame:
     return universe.reset_index(drop=True)
 
 
-MAX_LIVE_FUNDAMENTALS_FETCH = 200
+# ---------------------------------------------------------------------------
+# Price history and price-derived metrics
+# ---------------------------------------------------------------------------
 
-
-def _fetch_single_price(symbol: str, period: str = "6mo") -> Optional[dict]:
-    try:
-        hist = yf.Ticker(symbol).history(period=period, auto_adjust=True)
-        if hist is None or hist.empty or "Close" not in hist.columns:
-            return None
-        return _price_row_from_series(symbol, hist["Close"], hist.get("Volume"))
-    except Exception:
+def _extract_ticker_frame(raw: pd.DataFrame, symbol: str) -> Optional[pd.DataFrame]:
+    """Pull one ticker's OHLCV frame out of a yf.download result (single or multi-index)."""
+    if raw is None or raw.empty:
         return None
+    if isinstance(raw.columns, pd.MultiIndex):
+        frame = None
+        for level in range(raw.columns.nlevels):
+            if symbol in raw.columns.get_level_values(level):
+                frame = raw.xs(symbol, axis=1, level=level)
+                break
+        if frame is None:
+            return None
+    else:
+        frame = raw
+    if "Close" not in frame.columns:
+        return None
+    frame = frame.dropna(subset=["Close"])
+    return frame if not frame.empty else None
 
 
-def fetch_price_data_batch(tickers: list[str], period: str = "6mo") -> pd.DataFrame:
-    """Batch download price/volume data via yfinance."""
-    if not tickers:
-        return pd.DataFrame()
-
-    rows = []
-    chunk_size = 100
-
-    for i in range(0, len(tickers), chunk_size):
-        chunk = tickers[i : i + chunk_size]
-        try:
-            raw = yf.download(
-                tickers=chunk,
-                period=period,
-                group_by="ticker",
-                auto_adjust=True,
-                threads=True,
-                progress=False,
-            )
-        except Exception:
-            raw = None
-
-        if raw is None or raw.empty:
-            continue
-
-        if len(chunk) == 1:
-            sym = chunk[0]
-            try:
-                close = raw["Close"].dropna()
-                if close.empty:
-                    continue
-                rows.append(_price_row_from_series(sym, close, raw.get("Volume")))
-            except Exception:
-                continue
-            continue
-
-        for sym in chunk:
-            try:
-                if sym not in raw.columns.get_level_values(0):
-                    continue
-                close = raw[sym]["Close"].dropna()
-                if close.empty:
-                    continue
-                vol = raw[sym]["Volume"] if "Volume" in raw[sym] else None
-                rows.append(_price_row_from_series(sym, close, vol))
-            except Exception:
-                continue
-
-    fetched = {row["ticker"] for row in rows}
-    missing = [sym for sym in tickers if sym not in fetched]
-    for sym in missing:
-        row = _fetch_single_price(sym, period)
-        if row:
-            rows.append(row)
-
-    return pd.DataFrame(rows)
+def _trailing_return(close: pd.Series, lookback: int) -> Optional[float]:
+    """(Close[-1] / Close[-lookback]) - 1, as a percent."""
+    if len(close) < lookback:
+        return None
+    base = float(close.iloc[-lookback])
+    if base <= 0:
+        return None
+    return (float(close.iloc[-1]) / base - 1) * 100
 
 
-def _price_row_from_series(symbol: str, close: pd.Series, volume: Optional[pd.Series]) -> dict:
+def _last_or_none(series: pd.Series) -> Optional[float]:
+    if series is None or series.empty:
+        return None
+    return _safe_float(series.iloc[-1])
+
+
+def compute_price_metrics(symbol: str, frame: pd.DataFrame) -> dict:
+    """Quote fields, trailing returns, risk metrics and technicals from adjusted OHLCV history."""
+    close = frame["Close"].astype(float)
+    volume = frame["Volume"].astype(float) if "Volume" in frame.columns else None
+    n = len(close)
+
     price = float(close.iloc[-1])
-    prev = float(close.iloc[-2]) if len(close) >= 2 else price
+    prev = float(close.iloc[-2]) if n >= 2 else None
     change_pct = ((price - prev) / prev * 100) if prev else None
 
-    def perf(days: int) -> Optional[float]:
-        if len(close) > days:
-            old = float(close.iloc[-days - 1])
-            return ((price - old) / old * 100) if old else None
-        return None
+    returns = close.pct_change().dropna().tail(252)
+    volatility = float(returns.std() * np.sqrt(252)) if len(returns) >= 20 else None
 
-    avg_vol = float(volume.dropna().tail(20).mean()) if volume is not None and not volume.dropna().empty else None
-    cur_vol = float(volume.iloc[-1]) if volume is not None and not volume.dropna().empty else None
+    one_year = _trailing_return(close, 252)
+    if one_year is not None:
+        annual_return = one_year / 100
+    elif n >= 60 and float(close.iloc[0]) > 0:
+        annual_return = (price / float(close.iloc[0])) ** (252 / (n - 1)) - 1
+    else:
+        annual_return = None
+    sharpe = None
+    if annual_return is not None and volatility is not None and volatility > 0:
+        sharpe = (annual_return - RISK_FREE_RATE) / volatility
+
+    delta = close.diff()
+    avg_gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    rsi = None
+    if n > 14:
+        gain, loss = _last_or_none(avg_gain), _last_or_none(avg_loss)
+        if gain is not None and loss is not None:
+            rsi = 100.0 if loss == 0 else 100 - 100 / (1 + gain / loss)
+
+    sma20 = _last_or_none(close.rolling(20).mean()) if n >= 20 else None
+    sma50 = _last_or_none(close.rolling(50).mean()) if n >= 50 else None
+    sma200 = _last_or_none(close.rolling(200).mean()) if n >= 200 else None
+
+    macd_bullish = None
+    if n >= 35:
+        macd = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+        signal = macd.ewm(span=9, adjust=False).mean()
+        macd_bullish = bool(macd.iloc[-1] > signal.iloc[-1])
+
+    bb_position = None
+    if n >= 20:
+        std20 = _last_or_none(close.rolling(20).std())
+        if sma20 is not None and std20 is not None:
+            upper, lower = sma20 + 2 * std20, sma20 - 2 * std20
+            bb_position = "Above Upper" if price > upper else "Below Lower" if price < lower else "Between Bands"
+
+    clean_vol = volume.dropna() if volume is not None else pd.Series(dtype=float)
+    last_year = close.tail(252)
 
     return {
         "ticker": symbol,
         "price": price,
         "previous_close": prev,
-        "open": None,
-        "day_high": None,
-        "day_low": None,
-        "volume": cur_vol,
-        "average_volume": avg_vol,
+        "open": _last_or_none(frame["Open"]) if "Open" in frame.columns else None,
+        "day_high": _last_or_none(frame["High"]) if "High" in frame.columns else None,
+        "day_low": _last_or_none(frame["Low"]) if "Low" in frame.columns else None,
+        "volume": float(clean_vol.iloc[-1]) if not clean_vol.empty else None,
+        "average_volume": float(clean_vol.tail(20).mean()) if not clean_vol.empty else None,
         "change_percent": change_pct,
-        "week": perf(5),
-        "month": perf(21),
-        "quarter": perf(63),
-        "year": perf(252),
+        "week": _trailing_return(close, 5),
+        "month": _trailing_return(close, 21),
+        "quarter": _trailing_return(close, 63),
+        "six_month": _trailing_return(close, 126),
+        "year": one_year,
+        "volatility": volatility * 100 if volatility is not None else None,
+        "sharpe": sharpe,
+        "rsi": rsi,
+        "sma20": sma20,
+        "sma50": sma50,
+        "sma200": sma200,
+        "macd_bullish": macd_bullish,
+        "bb_position": bb_position,
+        "hist_52w_high": float(last_year.max()),
+        "hist_52w_low": float(last_year.min()),
     }
 
 
-def _read_disk_cache(max_age_days: int = 7) -> Optional[pd.DataFrame]:
-    if not os.path.exists(CACHE_PATH):
-        return None
+def _download_prices(tickers: list[str], start: str) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
     try:
-        df = pd.read_csv(CACHE_PATH)
-        if "cache_date" not in df.columns or df.empty:
-            return None
-        cache_day = datetime.strptime(str(df["cache_date"].iloc[0]), "%Y-%m-%d").date()
-        if (date.today() - cache_day).days > max_age_days:
-            return None
-        return df.drop(columns=["cache_date"], errors="ignore")
+        raw = yf.download(
+            tickers=tickers,
+            start=start,
+            group_by="ticker",
+            auto_adjust=True,
+            threads=True,
+            progress=False,
+        )
     except Exception:
+        return rows
+    for sym in tickers:
+        try:
+            frame = _extract_ticker_frame(raw, sym)
+            if frame is not None:
+                rows[sym] = compute_price_metrics(sym, frame)
+        except Exception:
+            continue
+    return rows
+
+
+def fetch_price_data_batch(tickers: list[str]) -> pd.DataFrame:
+    """Batch download ~15 months of adjusted prices and compute price-derived metrics."""
+    if not tickers:
+        return pd.DataFrame()
+
+    start = (date.today() - timedelta(days=PRICE_LOOKBACK_DAYS)).isoformat()
+    rows: dict[str, dict] = {}
+    chunk_size = 100
+    for i in range(0, len(tickers), chunk_size):
+        rows.update(_download_prices(tickers[i : i + chunk_size], start))
+
+    missing = [sym for sym in tickers if sym not in rows]
+    for i in range(0, len(missing), chunk_size):
+        rows.update(_download_prices(missing[i : i + chunk_size], start))
+
+    return pd.DataFrame(list(rows.values()))
+
+
+# ---------------------------------------------------------------------------
+# Fundamentals
+# ---------------------------------------------------------------------------
+
+def _has_fundamentals(row: dict) -> bool:
+    return any(_safe_float(row.get(field)) is not None for field in FUNDAMENTAL_NUMERIC_FIELDS if field != "market_cap")
+
+
+def _parse_info(symbol: str, info: dict) -> dict:
+    def num(*keys):
+        for key in keys:
+            val = _safe_float(info.get(key))
+            if val is not None:
+                return val
         return None
 
+    def pct(*keys):
+        val = num(*keys)
+        return val * 100 if val is not None else None
 
-def _merge_disk_cache(new_rows: pd.DataFrame) -> None:
-    os.makedirs(DATA_DIR, exist_ok=True)
-    existing = _read_disk_cache(max_age_days=365) or pd.DataFrame()
-    if not existing.empty and "ticker" in existing.columns:
-        combined = pd.concat([existing, new_rows], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["ticker"], keep="last")
+    # Yahoo's dividendYield units changed across yfinance versions; rate / price is unambiguous.
+    dividend_rate = num("dividendRate", "trailingAnnualDividendRate")
+    quote_price = num("currentPrice", "regularMarketPrice", "previousClose")
+    if dividend_rate is not None and quote_price:
+        dividend_yield = dividend_rate / quote_price * 100
     else:
-        combined = new_rows.copy()
-    combined["cache_date"] = str(date.today())
-    combined.to_csv(CACHE_PATH, index=False)
+        dividend_yield = num("dividendYield")
+
+    return {
+        "ticker": symbol,
+        "company_name": info.get("longName") or info.get("shortName"),
+        "exchange": info.get("exchange"),
+        "country": info.get("country"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "market_cap": num("marketCap"),
+        "pe": num("trailingPE", "forwardPE"),
+        "forward_pe": num("forwardPE"),
+        "pb": num("priceToBook"),
+        "ps": num("priceToSalesTrailing12Months"),
+        "ev_ebitda": num("enterpriseToEbitda"),
+        "peg": num("pegRatio", "trailingPegRatio"),
+        "dividend_yield": dividend_yield,
+        "beta": num("beta"),
+        "roe": pct("returnOnEquity"),
+        "roa": pct("returnOnAssets"),
+        "profit_margin": pct("profitMargins"),
+        "operating_margin": pct("operatingMargins"),
+        "debt_to_equity": num("debtToEquity"),
+        "current_ratio": num("currentRatio"),
+        "quick_ratio": num("quickRatio"),
+        "revenue_growth": pct("revenueGrowth"),
+        "earnings_growth": pct("earningsGrowth", "earningsQuarterlyGrowth"),
+        "fifty_two_week_high": num("fiftyTwoWeekHigh"),
+        "fifty_two_week_low": num("fiftyTwoWeekLow"),
+    }
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_fundamentals_cached(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Fetch fundamentals per ticker with in-memory and incremental disk cache."""
-    cached = _read_disk_cache()
-    cached_by_ticker: dict[str, dict] = {}
-    if cached is not None and not cached.empty:
-        for _, row in cached.iterrows():
-            cached_by_ticker[str(row["ticker"])] = row.to_dict()
-
-    to_fetch = [sym for sym in tickers if sym not in cached_by_ticker]
-    if len(to_fetch) > MAX_LIVE_FUNDAMENTALS_FETCH:
-        to_fetch = to_fetch[:MAX_LIVE_FUNDAMENTALS_FETCH]
-    rows = []
-
-    for sym in to_fetch:
-        row = {"ticker": sym}
+def _fetch_info_row(symbol: str, rate_limited: threading.Event) -> tuple[dict, str, str]:
+    """Return (row, status, error). Retries transient errors once; stops the scan's live fetches on rate limits."""
+    error = ""
+    for attempt in range(2):
+        if rate_limited.is_set():
+            return {"ticker": symbol}, "failed", "Yahoo rate limit hit during this scan; will retry next scan"
         try:
-            t = yf.Ticker(sym)
-            info = {}
-            try:
-                info = t.info or {}
-            except Exception:
-                info = {}
-            try:
-                fast = t.fast_info
-            except Exception:
-                fast = {}
+            info = yf.Ticker(symbol).info or {}
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {str(exc)[:120]}"
+            if "RateLimit" in type(exc).__name__:
+                rate_limited.set()
+                return {"ticker": symbol}, "failed", error
+            time.sleep(1.0 * (attempt + 1))
+            continue
+        try:
+            row = _parse_info(symbol, info)
+        except Exception as exc:
+            return {"ticker": symbol}, "failed", f"parse error: {exc}"
+        if _has_fundamentals(row):
+            return row, "fetched", ""
+        return row, "failed", "no fundamental fields returned by Yahoo"
+    return {"ticker": symbol}, "failed", error or "unknown error"
 
-            row.update({
-                "company_name": info.get("longName") or info.get("shortName"),
-                "exchange": info.get("exchange"),
-                "country": info.get("country"),
-                "sector": info.get("sector"),
-                "industry": info.get("industry"),
-                "market_cap": _safe_float(info.get("marketCap") or getattr(fast, "market_cap", None)),
-                "pe": _safe_float(info.get("trailingPE") or info.get("forwardPE")),
-                "forward_pe": _safe_float(info.get("forwardPE")),
-                "pb": _safe_float(info.get("priceToBook")),
-                "ps": _safe_float(info.get("priceToSalesTrailing12Months")),
-                "ev_ebitda": _safe_float(info.get("enterpriseToEbitda")),
-                "peg": _safe_float(info.get("pegRatio")),
-                "dividend_yield": (_safe_float(info.get("dividendYield")) * 100)
-                if info.get("dividendYield") is not None else None,
-                "beta": _safe_float(info.get("beta")),
-                "roe": (_safe_float(info.get("returnOnEquity")) * 100) if info.get("returnOnEquity") is not None else None,
-                "roa": (_safe_float(info.get("returnOnAssets")) * 100) if info.get("returnOnAssets") is not None else None,
-                "profit_margin": (_safe_float(info.get("profitMargins")) * 100) if info.get("profitMargins") is not None else None,
-                "operating_margin": (_safe_float(info.get("operatingMargins")) * 100) if info.get("operatingMargins") is not None else None,
-                "debt_to_equity": _safe_float(info.get("debtToEquity")),
-                "current_ratio": _safe_float(info.get("currentRatio")),
-                "quick_ratio": _safe_float(info.get("quickRatio")),
-                "revenue_growth": (_safe_float(info.get("revenueGrowth")) * 100) if info.get("revenueGrowth") is not None else None,
-                "earnings_growth": (
-                    _safe_float(info.get("earningsGrowth") or info.get("earningsQuarterlyGrowth")) * 100
-                )
-                if (info.get("earningsGrowth") or info.get("earningsQuarterlyGrowth")) is not None
-                else None,
-                "fifty_two_week_high": _safe_float(info.get("fiftyTwoWeekHigh")),
-                "fifty_two_week_low": _safe_float(info.get("fiftyTwoWeekLow")),
-            })
-        except Exception:
-            pass
-        rows.append(row)
 
-    if rows:
-        _merge_disk_cache(pd.DataFrame(rows))
+def _read_disk_cache() -> dict[str, dict]:
+    """Fresh, non-empty fundamentals rows from disk keyed by ticker."""
+    if not os.path.exists(CACHE_PATH):
+        return {}
+    try:
+        df = pd.read_csv(CACHE_PATH, keep_default_na=False, na_values=[""])
+    except Exception:
+        return {}
+    if df.empty or "ticker" not in df.columns:
+        return {}
 
-    result_rows = []
+    cutoff = date.today() - timedelta(days=FUNDAMENTALS_CACHE_MAX_AGE_DAYS)
+    rows: dict[str, dict] = {}
+    for record in df.to_dict("records"):
+        try:
+            cached_on = datetime.strptime(str(record.get("cache_date")), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if cached_on < cutoff or not _has_fundamentals(record):
+            continue
+        rows[normalize_ticker(record["ticker"])] = record
+    return rows
+
+
+def _write_disk_cache(new_rows: list[dict]) -> None:
+    if not new_rows:
+        return
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        today = str(date.today())
+        merged = _read_disk_cache()
+        for row in new_rows:
+            merged[row["ticker"]] = {**row, "cache_date": today}
+        pd.DataFrame(list(merged.values())).to_csv(CACHE_PATH, index=False)
+    except Exception:
+        pass
+
+
+def fetch_fundamentals_cached(tickers, progress_callback=None) -> pd.DataFrame:
+    """
+    Fundamentals for each ticker from memory cache, disk cache, or live yfinance `.info`.
+
+    Only successful rows are cached, so a rate-limited or failed call is retried on the next scan
+    instead of being stored as permanent N/A. Adds `fundamentals_status`
+    (cached / fetched / failed / skipped) and `fundamentals_error` columns.
+    """
+    tickers = [normalize_ticker(t) for t in tickers]
+    disk = _read_disk_cache()
+
+    results: dict[str, dict] = {}
+    to_fetch = []
     for sym in tickers:
-        if sym in cached_by_ticker:
-            result_rows.append(cached_by_ticker[sym])
+        cached = _FUNDAMENTALS_MEMORY.get(sym) or disk.get(sym)
+        if cached is not None:
+            results[sym] = {**cached, "fundamentals_status": "cached", "fundamentals_error": ""}
         else:
-            fetched = next((r for r in rows if r.get("ticker") == sym), {"ticker": sym})
-            result_rows.append(fetched)
+            to_fetch.append(sym)
 
-    return pd.DataFrame(result_rows)
+    skipped = to_fetch[MAX_LIVE_FUNDAMENTALS_FETCH:]
+    to_fetch = to_fetch[:MAX_LIVE_FUNDAMENTALS_FETCH]
+    for sym in skipped:
+        results[sym] = {
+            "ticker": sym,
+            "fundamentals_status": "skipped",
+            "fundamentals_error": f"over per-scan live fetch limit ({MAX_LIVE_FUNDAMENTALS_FETCH})",
+        }
+
+    fetched_rows = []
+    rate_limited = threading.Event()
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=FUNDAMENTAL_WORKERS) as pool:
+            futures = {pool.submit(_fetch_info_row, sym, rate_limited): sym for sym in to_fetch}
+            for done, future in enumerate(as_completed(futures), start=1):
+                sym = futures[future]
+                try:
+                    row, status, error = future.result()
+                except Exception as exc:
+                    row, status, error = {"ticker": sym}, "failed", str(exc)
+                results[sym] = {**row, "fundamentals_status": status, "fundamentals_error": error}
+                if status == "fetched":
+                    _FUNDAMENTALS_MEMORY[sym] = row
+                    fetched_rows.append(row)
+                if progress_callback:
+                    progress_callback(done, len(to_fetch))
+
+    _write_disk_cache(fetched_rows)
+
+    df = pd.DataFrame([results[sym] for sym in tickers])
+    return df.drop(columns=["cache_date"], errors="ignore")
+
+
+# ---------------------------------------------------------------------------
+# Normalize, format, pipeline
+# ---------------------------------------------------------------------------
+
+LEGACY_ALIASES = {
+    "Ticker": "ticker",
+    "Price": "price",
+    "MarketCap": "market_cap",
+    "PE": "pe",
+    "PB": "pb",
+    "PS": "ps",
+    "PEG": "peg",
+    "EV_EBITDA": "ev_ebitda",
+    "DividendYield": "dividend_yield",
+    "Beta": "beta",
+    "ROE": "roe",
+    "ROA": "roa",
+    "ProfitMargin": "profit_margin",
+    "OperatingMargin": "operating_margin",
+    "DebtToEquity": "debt_to_equity",
+    "CurrentRatio": "current_ratio",
+    "QuickRatio": "quick_ratio",
+    "EPSGrowth": "earnings_growth",
+    "RevenueGrowth": "revenue_growth",
+    "Sector": "sector",
+    "Week": "week",
+    "Month": "month",
+    "3Months": "quarter",
+    "6Months": "six_month",
+    "Year": "year",
+    "Volatility": "volatility",
+    "Sharpe": "sharpe",
+    "RSI": "rsi",
+    "SMA20": "sma20",
+    "SMA50": "sma50",
+    "SMA200": "sma200",
+    "MACD_Bullish": "macd_bullish",
+    "BB_Position": "bb_position",
+}
+
+PRICE_NUMERIC_FIELDS = [
+    "price", "previous_close", "open", "day_high", "day_low", "volume", "average_volume",
+    "change_percent", "week", "month", "quarter", "six_month", "year", "volatility",
+    "sharpe", "rsi", "sma20", "sma50", "sma200", "hist_52w_high", "hist_52w_low",
+]
 
 
 def normalize_stock_dataframe(
@@ -395,49 +620,41 @@ def normalize_stock_dataframe(
 ) -> pd.DataFrame:
     """Merge universe, price, and fundamentals into a normalized screener DataFrame."""
     base = universe_df.copy()
-    if not price_df.empty:
-        base = base.merge(price_df, on="ticker", how="left", suffixes=("", "_px"))
-    if not fundamentals_df.empty:
-        cols = [c for c in fundamentals_df.columns if c != "ticker"]
-        base = base.merge(fundamentals_df[["ticker"] + cols], on="ticker", how="left", suffixes=("", "_fund"))
+    base["ticker"] = base["ticker"].apply(normalize_ticker)
+    base = base.drop_duplicates(subset=["ticker"])
 
-    for col in [
-        "price", "previous_close", "open", "day_high", "day_low", "volume", "average_volume",
-        "market_cap", "change_percent", "pe", "forward_pe", "pb", "ps", "ev_ebitda", "peg",
-        "dividend_yield", "beta", "roe", "roa", "profit_margin", "operating_margin",
-        "debt_to_equity", "current_ratio", "quick_ratio", "revenue_growth", "earnings_growth",
-        "fifty_two_week_high", "fifty_two_week_low", "week", "month", "quarter", "year",
-    ]:
-        if col in base.columns:
-            base[col] = pd.to_numeric(base[col], errors="coerce")
+    if price_df is not None and not price_df.empty:
+        prices = price_df.copy()
+        prices["ticker"] = prices["ticker"].apply(normalize_ticker)
+        prices = prices.drop_duplicates(subset=["ticker"])
+        base = base.merge(prices, on="ticker", how="left")
 
-    if "company_name" in base.columns:
-        base["company_name"] = base["company_name"].fillna(base.get("company_name_fund")).fillna(base["ticker"])
+    if fundamentals_df is not None and not fundamentals_df.empty:
+        fund = fundamentals_df.copy()
+        fund["ticker"] = fund["ticker"].apply(normalize_ticker)
+        fund = fund.drop_duplicates(subset=["ticker"])
+        overlap = [c for c in fund.columns if c != "ticker" and c in base.columns]
+        fund = fund.rename(columns={c: f"{c}_fund" for c in overlap})
+        base = base.merge(fund, on="ticker", how="left")
+        for col in overlap:
+            # Yahoo's values (e.g. longName) are preferred over the symbol-file text.
+            base[col] = base[f"{col}_fund"].where(base[f"{col}_fund"].notna() & (base[f"{col}_fund"] != ""), base[col])
+            base = base.drop(columns=[f"{col}_fund"])
 
-    # Legacy uppercase aliases for existing UI components
-    base["Ticker"] = base["ticker"]
-    base["Price"] = base["price"]
-    base["MarketCap"] = base["market_cap"]
-    base["PE"] = base["pe"]
-    base["PB"] = base["pb"]
-    base["PS"] = base["ps"]
-    base["PEG"] = base["peg"]
-    base["EV_EBITDA"] = base["ev_ebitda"]
-    base["DividendYield"] = base["dividend_yield"]
-    base["Beta"] = base["beta"]
-    base["ROE"] = base["roe"]
-    base["ROA"] = base["roa"]
-    base["ProfitMargin"] = base["profit_margin"]
-    base["OperatingMargin"] = base["operating_margin"]
-    base["DebtToEquity"] = base["debt_to_equity"]
-    base["CurrentRatio"] = base["current_ratio"]
-    base["QuickRatio"] = base["quick_ratio"]
-    base["EPSGrowth"] = base["earnings_growth"]
-    base["RevenueGrowth"] = base["revenue_growth"]
-    base["Sector"] = base["sector"] if "sector" in base.columns else None
-    base["Week"] = base["week"] if "week" in base.columns else None
-    base["Month"] = base["month"] if "month" in base.columns else None
-    base["Year"] = base["year"] if "year" in base.columns else None
+    for col in FUNDAMENTAL_NUMERIC_FIELDS + PRICE_NUMERIC_FIELDS:
+        if col not in base.columns:
+            base[col] = np.nan
+        base[col] = pd.to_numeric(base[col], errors="coerce")
+    for col in FUNDAMENTAL_TEXT_FIELDS + ["macd_bullish", "bb_position", "fundamentals_status", "fundamentals_error"]:
+        if col not in base.columns:
+            base[col] = None
+
+    base["fifty_two_week_high"] = base["fifty_two_week_high"].fillna(base["hist_52w_high"])
+    base["fifty_two_week_low"] = base["fifty_two_week_low"].fillna(base["hist_52w_low"])
+    base["company_name"] = base["company_name"].fillna(base["ticker"])
+
+    for alias, source in LEGACY_ALIASES.items():
+        base[alias] = base[source]
 
     return base
 
@@ -453,9 +670,9 @@ def format_screener_results(df: pd.DataFrame) -> pd.DataFrame:
 
     pct_cols = [
         "change_percent", "dividend_yield", "roe", "roa", "profit_margin", "operating_margin",
-        "revenue_growth", "earnings_growth", "week", "month", "year", "DividendYield",
-        "ROE", "ROA", "ProfitMargin", "OperatingMargin", "EPSGrowth", "RevenueGrowth",
-        "Week", "Month", "Year",
+        "revenue_growth", "earnings_growth", "week", "month", "quarter", "six_month", "year",
+        "volatility", "DividendYield", "ROE", "ROA", "ProfitMargin", "OperatingMargin",
+        "EPSGrowth", "RevenueGrowth", "Week", "Month", "3Months", "6Months", "Year", "Volatility",
     ]
     for col in pct_cols:
         if col in out.columns:
@@ -465,14 +682,20 @@ def format_screener_results(df: pd.DataFrame) -> pd.DataFrame:
 
     ratio_cols = [
         "pe", "forward_pe", "pb", "ps", "ev_ebitda", "peg", "beta", "debt_to_equity",
-        "current_ratio", "quick_ratio", "PE", "PB", "PS", "PEG", "EV_EBITDA", "Beta",
-        "DebtToEquity", "CurrentRatio", "QuickRatio",
+        "current_ratio", "quick_ratio", "sharpe", "rsi", "PE", "PB", "PS", "PEG", "EV_EBITDA",
+        "Beta", "DebtToEquity", "CurrentRatio", "QuickRatio", "Sharpe", "RSI",
     ]
     for col in ratio_cols:
         if col in out.columns:
             out[col] = out[col].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "N/A")
 
     return out
+
+
+def _status_tickers(fundamentals_df: pd.DataFrame, status: str) -> list[str]:
+    if fundamentals_df.empty or "fundamentals_status" not in fundamentals_df.columns:
+        return []
+    return fundamentals_df.loc[fundamentals_df["fundamentals_status"] == status, "ticker"].tolist()
 
 
 def run_screener_pipeline(
@@ -489,13 +712,24 @@ def run_screener_pipeline(
         "symbols_loaded": 0,
         "symbols_scanned": 0,
         "price_fetched": 0,
+        "price_failed_samples": [],
         "fundamentals_fetched": 0,
+        "fundamentals_ok": 0,
+        "fundamentals_cached": 0,
+        "fundamentals_live": 0,
+        "fundamentals_failed": 0,
+        "fundamentals_skipped": 0,
+        "fundamentals_failed_samples": [],
         "fetch_failures": 0,
         "matched": 0,
         "filter_rejections": {},
         "excluded_samples": [],
         "error": None,
     }
+
+    def report(pct: float, msg: str) -> None:
+        if progress_callback:
+            progress_callback(pct, msg)
 
     try:
         universe_df = load_symbol_universe(tuple(markets), universe_size)
@@ -506,39 +740,58 @@ def run_screener_pipeline(
         tickers = universe_df["ticker"].tolist()
         debug["symbols_scanned"] = len(tickers)
 
-        if progress_callback:
-            progress_callback(0.1, "Fetching price data (batch)...")
+        report(0.05, f"Downloading ~15 months of prices for {len(tickers)} symbols...")
         price_df = fetch_price_data_batch(tickers)
         debug["price_fetched"] = len(price_df)
+        priced = set(price_df["ticker"]) if not price_df.empty else set()
+        debug["price_failed_samples"] = [t for t in tickers if t not in priced][:10]
 
-        if progress_callback:
-            progress_callback(0.45, "Fetching fundamentals (cached)...")
-        fundamentals_df = fetch_fundamentals_cached(tuple(tickers))
-        debug["fundamentals_fetched"] = int(fundamentals_df["ticker"].nunique()) if not fundamentals_df.empty else 0
+        report(0.35, "Loading fundamentals (cache first, then live)...")
 
-        if progress_callback:
-            progress_callback(0.75, "Normalizing and filtering...")
+        def fundamentals_progress(done: int, total: int) -> None:
+            report(0.35 + 0.5 * done / max(total, 1), f"Fetching fundamentals live: {done}/{total}")
 
+        fundamentals_df = fetch_fundamentals_cached(tickers, progress_callback=fundamentals_progress)
+        debug["fundamentals_cached"] = len(_status_tickers(fundamentals_df, "cached"))
+        debug["fundamentals_live"] = len(_status_tickers(fundamentals_df, "fetched"))
+        debug["fundamentals_ok"] = debug["fundamentals_cached"] + debug["fundamentals_live"]
+        debug["fundamentals_fetched"] = debug["fundamentals_ok"]
+        debug["fundamentals_failed"] = len(_status_tickers(fundamentals_df, "failed"))
+        debug["fundamentals_skipped"] = len(_status_tickers(fundamentals_df, "skipped"))
+        failed = fundamentals_df[fundamentals_df["fundamentals_status"] == "failed"]
+        debug["fundamentals_failed_samples"] = [
+            {"ticker": r["ticker"], "reason": r.get("fundamentals_error") or "unknown"}
+            for r in failed.head(10).to_dict("records")
+        ]
+
+        report(0.9, "Normalizing and filtering...")
         normalized = normalize_stock_dataframe(universe_df, price_df, fundamentals_df)
-        debug["fetch_failures"] = len(tickers) - int(normalized["price"].notna().sum()) if "price" in normalized.columns else len(tickers)
+        debug["fetch_failures"] = len(tickers) - int(normalized["price"].notna().sum())
 
         filter_cfg = build_filter_config(**filter_kwargs)
         filtered, rejections, excluded_samples = apply_screener_filters(normalized, filter_cfg)
 
         if filtered.empty and not any_filter_active(filter_cfg):
-            if "price" in normalized.columns:
-                filtered = normalized[normalized["price"].notna()].copy()
-            else:
-                filtered = normalized.copy()
+            filtered = normalized[normalized["price"].notna()].copy()
 
         debug["matched"] = len(filtered)
         debug["filter_rejections"] = rejections
         debug["excluded_samples"] = excluded_samples[:10]
 
-        if progress_callback:
-            progress_callback(1.0, "Done")
+        print(
+            f"[screener] universe={universe_size} scanned={len(tickers)} "
+            f"prices_ok={debug['price_fetched']} prices_failed={len(tickers) - debug['price_fetched']} "
+            f"fundamentals_ok={debug['fundamentals_ok']} (cached={debug['fundamentals_cached']}, "
+            f"live={debug['fundamentals_live']}) fundamentals_failed={debug['fundamentals_failed']} "
+            f"skipped={debug['fundamentals_skipped']} matched={debug['matched']}",
+            flush=True,
+        )
+        if debug["fundamentals_failed_samples"]:
+            print(f"[screener] fundamentals failures (first 10): {debug['fundamentals_failed_samples']}", flush=True)
 
+        report(1.0, "Done")
         return filtered, normalized, debug
     except Exception as exc:
-        debug["error"] = str(exc)
+        debug["error"] = f"{type(exc).__name__}: {exc}"
+        print(f"[screener] pipeline error: {debug['error']}", flush=True)
         return pd.DataFrame(), pd.DataFrame(), debug

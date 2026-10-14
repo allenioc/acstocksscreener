@@ -654,26 +654,26 @@ elif current_page == "Screener":
         with r2b5:
             operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", DEFAULT_BOUNDS["operating_margin"][0], DEFAULT_BOUNDS["operating_margin"][1], DEFAULT_BOUNDS["operating_margin"], step=0.1)
 
+        # Debt/Assets, Equity Ratio and Interest Coverage are not in Yahoo's quote data
+        # (no totalAssets or interest expense), so those filters stay at their neutral range.
+        debt_to_assets_min, debt_to_assets_max = DEFAULT_BOUNDS["debt_to_assets"]
+        equity_ratio_min, equity_ratio_max = DEFAULT_BOUNDS["equity_ratio"]
+        interest_coverage_min, interest_coverage_max = DEFAULT_BOUNDS["interest_coverage"]
+
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
             debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v5")
         with r2c2b:
-            debt_to_assets_min, debt_to_assets_max = st.slider("Debt/Assets %", DEFAULT_BOUNDS["debt_to_assets"][0], DEFAULT_BOUNDS["debt_to_assets"][1], DEFAULT_BOUNDS["debt_to_assets"], step=0.1)
-        with r2c3b:
-            equity_ratio_min, equity_ratio_max = st.slider("Equity Ratio %", DEFAULT_BOUNDS["equity_ratio"][0], DEFAULT_BOUNDS["equity_ratio"][1], DEFAULT_BOUNDS["equity_ratio"], step=0.1)
-        with r2c4b:
-            interest_coverage_min, interest_coverage_max = st.slider("Int. Coverage", DEFAULT_BOUNDS["interest_coverage"][0], DEFAULT_BOUNDS["interest_coverage"][1], DEFAULT_BOUNDS["interest_coverage"], step=0.1)
-        with r2c5b:
             current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v5")
+        with r2c3b:
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v5")
+        with r2c4b:
+            beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
+        with r2c5b:
+            eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0)
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v5")
-        with r2d2:
-            beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
-        with r2d3:
-            eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0)
-        with r2d4:
             revenue_growth_min = st.number_input("Rev Growth %", value=-100.0, step=1.0)
 
     with ftab3:
@@ -792,10 +792,21 @@ elif current_page == "Screener":
         with st.expander("Filter debug", expanded=no_matches):
             st.write(f"**Total symbols loaded:** {debug['symbols_loaded']}")
             st.write(f"**Symbols scanned:** {debug['symbols_scanned']}")
-            st.write(f"**Price data fetched:** {debug['price_fetched']}")
-            st.write(f"**Fundamentals fetched:** {debug['fundamentals_fetched']}")
-            st.write(f"**Fetch failures:** {debug['fetch_failures']}")
+            st.write(f"**Price data fetched:** {debug['price_fetched']} (failed: {debug['fetch_failures']})")
+            st.write(
+                f"**Fundamentals loaded:** {debug.get('fundamentals_ok', debug.get('fundamentals_fetched', 0))} "
+                f"(from cache: {debug.get('fundamentals_cached', 0)}, fetched live: {debug.get('fundamentals_live', 0)})"
+            )
+            st.write(
+                f"**Fundamentals failed:** {debug.get('fundamentals_failed', 0)} · "
+                f"**skipped (over live-fetch limit):** {debug.get('fundamentals_skipped', 0)}"
+            )
             st.write(f"**Final matches:** {debug['matched']}")
+            if debug.get("price_failed_samples"):
+                st.caption("No price data: " + ", ".join(debug["price_failed_samples"]))
+            if debug.get("fundamentals_failed_samples"):
+                st.markdown("**First fundamentals failures:**")
+                st.dataframe(pd.DataFrame(debug["fundamentals_failed_samples"]), hide_index=True, use_container_width=True)
             if debug.get("error"):
                 st.error(f"**Error:** {debug['error']}")
             st.markdown("**Removed by active filter:**")
@@ -813,18 +824,25 @@ elif current_page == "Screener":
         if "MarketCap" in df.columns:
             df = df.sort_values("MarketCap", ascending=False, na_position='last')
 
-        avg_pe = df["PE"].mean() if "PE" in df.columns and df["PE"].notna().any() else None
-        avg_perf = df["Year"].mean() if "Year" in df.columns and df["Year"].notna().any() else None
-        avg_sharpe = df["Sharpe"].mean() if "Sharpe" in df.columns and df["Sharpe"].notna().any() else None
-        total_mc = df["MarketCap"].sum() if "MarketCap" in df.columns and df["MarketCap"].notna().any() else None
+        def _populated_mean(col):
+            if col not in df.columns:
+                return None
+            values = pd.to_numeric(df[col], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+            return float(values.mean()) if not values.empty else None
+
+        avg_pe = _populated_mean("PE")
+        avg_perf = _populated_mean("Year")
+        avg_sharpe = _populated_mean("Sharpe")
+        mc_values = pd.to_numeric(df["MarketCap"], errors="coerce").dropna() if "MarketCap" in df.columns else pd.Series(dtype=float)
+        total_mc = float(mc_values.sum()) if not mc_values.empty else None
 
         st.markdown(results_bar(count=len(df)), unsafe_allow_html=True)
         st.markdown(kpi_strip([
             ("Matches", str(len(df))),
-            ("Avg P/E", f"{avg_pe:.2f}" if avg_pe else "-"),
+            ("Avg P/E", f"{avg_pe:.2f}" if avg_pe is not None else "-"),
             ("Avg 1Y", format_pct(avg_perf) if avg_perf is not None else "-", delta_class(avg_perf)),
-            ("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe else "-"),
-            ("Total Cap", format_market_cap(total_mc) if total_mc else "-"),
+            ("Avg Sharpe", f"{avg_sharpe:.2f}" if avg_sharpe is not None else "-"),
+            ("Total Cap", format_market_cap(total_mc) if total_mc is not None else "-"),
         ]), unsafe_allow_html=True)
 
         st.markdown('<div class="results-zone">', unsafe_allow_html=True)
@@ -835,12 +853,13 @@ elif current_page == "Screener":
         with tab1:
             sort_col1, sort_col2, sort_col3, export_col1, export_col2 = st.columns([2, 1, 1, 1, 1])
             with sort_col1:
-                sort_col = st.selectbox("Order by", [
+                sort_options = [c for c in [
                     "MarketCap", "Price", "PE", "PB", "PS", "PEG", "EV_EBITDA",
                     "ROE", "ROA", "ProfitMargin", "OperatingMargin",
                     "DebtToEquity", "CurrentRatio", "QuickRatio",
-                    "Year", "RSI", "Sharpe"
-                ], label_visibility="collapsed")
+                    "6Months", "Year", "Volatility", "Sharpe", "RSI",
+                ] if c in df.columns]
+                sort_col = st.selectbox("Order by", sort_options, label_visibility="collapsed")
             with sort_col2:
                 sort_asc = st.checkbox("Asc", value=False)
             df_sorted = df.sort_values(sort_col, ascending=sort_asc, na_position='last')
@@ -853,13 +872,13 @@ elif current_page == "Screener":
                           # Profitability
                           "ROE", "ROA", "ProfitMargin", "OperatingMargin",
                           # Leverage
-                          "DebtToEquity", "DebtToAssets", "InterestCoverage",
+                          "DebtToEquity",
                           # Liquidity
                           "CurrentRatio", "QuickRatio",
                           # Other
                           "DividendYield", "Beta", "EPSGrowth", "RevenueGrowth",
                           "RSI", "Sharpe", "Volatility",
-                          "Week", "Month", "Year", "Sector"]
+                          "Week", "Month", "6Months", "Year", "Sector"]
             available_cols = [col for col in display_cols if col in df_display.columns]
             df_display = df_display[available_cols]
 

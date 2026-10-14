@@ -70,10 +70,10 @@ def _num(value: Any) -> Optional[float]:
 
 def _range_active(name: str, lo: float, hi: float, tol: float = 0.5) -> bool:
     """False when the slider still covers a full neutral/default range."""
-    dlo, dhi = DEFAULT_BOUNDS[name]
-    if lo <= dlo + tol and hi >= dhi - tol:
-        return False
-    for ndlo, ndhi in NEUTRAL_RANGES.get(name, [(dlo, dhi)]):
+    ranges = list(NEUTRAL_RANGES.get(name, []))
+    if name in DEFAULT_BOUNDS:
+        ranges.append(DEFAULT_BOUNDS[name])
+    for ndlo, ndhi in ranges:
         if lo <= ndlo + tol and hi >= ndhi - tol:
             return False
     return True
@@ -435,7 +435,7 @@ def apply_screener_filters(df, cfg: dict):
             "1 Week": ("week", "Week"),
             "1 Month": ("month", "Month"),
             "3 Months": ("quarter", "3Months"),
-            "6 Months": ("6Months",),
+            "6 Months": ("six_month", "6Months"),
             "1 Year": ("year", "Year"),
         }
         keys = period_map.get(cfg["performance"]["period"], ())
@@ -470,7 +470,8 @@ def apply_screener_filters(df, cfg: dict):
             _reject("technical", sma.isna() | price.isna() | (price < sma))
 
     if cfg.get("macd_bullish") and "MACD_Bullish" in df.columns:
-        _reject("technical", ~df["MACD_Bullish"].fillna(False))
+        bullish = df["MACD_Bullish"].map(lambda v: v is True or v == 1 or str(v).lower() == "true")
+        _reject("technical", ~bullish.astype(bool))
 
     if cfg["bb_position"]["active"] and "BB_Position" in df.columns:
         _reject("technical", df["BB_Position"] != cfg["bb_position"]["value"])
