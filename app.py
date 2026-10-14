@@ -596,6 +596,14 @@ if current_page == "Charts":
     render_charts_page(fetch_historical_data, create_advanced_candlestick_chart, create_rsi_chart)
 
 elif current_page == "Screener":
+    filter_version = st.session_state.get("filter_version", 0)
+
+    def fkey(name: str) -> str:
+        return f"{name}_f{filter_version}"
+
+    def _reset_filters():
+        st.session_state.filter_version = st.session_state.get("filter_version", 0) + 1
+
     st.markdown(filter_panel_open(), unsafe_allow_html=True)
     st.markdown('<div class="filter-zone">', unsafe_allow_html=True)
 
@@ -613,7 +621,7 @@ elif current_page == "Screener":
                 help="Limit symbols scanned for speed. Default Top 100.",
             )
         with r1c3:
-            market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"])
+            market_cap = st.selectbox("Market Cap", ["Any", "Mega (>$200B)", "Large ($10B-$200B)", "Mid ($2B-$10B)", "Small ($300M-$2B)", "Micro (<$300M)"], key=fkey("market_cap"))
         with r1c4:
             sector_filter = st.multiselect(
                 "Sector",
@@ -622,37 +630,38 @@ elif current_page == "Screener":
                  "Energy", "Basic Materials", "Communication Services",
                  "Utilities", "Real Estate"],
                 default=["Any"],
+                key=fkey("sector"),
             )
         with r1c5:
-            price_min, price_max = st.slider("Price ($)", 0.0, 5000.0, (0.0, 5000.0), step=0.1)
+            price_min, price_max = st.slider("Price ($)", 0.0, 5000.0, (0.0, 5000.0), step=0.1, key=fkey("price"))
         r1b1, r1b2, r1b3, r1b4, r1b5 = st.columns(5)
         with r1b1:
-            min_volume = st.selectbox("Avg Volume", [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000], index=0)
+            min_volume = st.selectbox("Avg Volume", [0, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000], index=0, key=fkey("min_volume"))
 
     with ftab2:
         r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
         with r2c1:
-            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key="pe_range_v5")
+            pe_min, pe_max = st.slider("P/E", DEFAULT_BOUNDS["pe"][0], DEFAULT_BOUNDS["pe"][1], DEFAULT_BOUNDS["pe"], step=0.1, key=fkey("pe_range_v5"))
         with r2c2:
-            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key="pb_range_v5")
+            pb_min, pb_max = st.slider("P/B", DEFAULT_BOUNDS["pb"][0], DEFAULT_BOUNDS["pb"][1], DEFAULT_BOUNDS["pb"], step=0.1, key=fkey("pb_range_v5"))
         with r2c3:
-            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key="ps_range_v5")
+            ps_min, ps_max = st.slider("P/S", DEFAULT_BOUNDS["ps"][0], DEFAULT_BOUNDS["ps"][1], DEFAULT_BOUNDS["ps"], step=0.1, key=fkey("ps_range_v5"))
         with r2c4:
-            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key="ev_range_v5")
+            ev_ebitda_min, ev_ebitda_max = st.slider("EV/EBITDA", DEFAULT_BOUNDS["ev_ebitda"][0], DEFAULT_BOUNDS["ev_ebitda"][1], DEFAULT_BOUNDS["ev_ebitda"], step=0.1, key=fkey("ev_range_v5"))
         with r2c5:
-            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key="peg_range_v5")
+            peg_min, peg_max = st.slider("PEG", DEFAULT_BOUNDS["peg"][0], DEFAULT_BOUNDS["peg"][1], DEFAULT_BOUNDS["peg"], step=0.1, key=fkey("peg_range_v5"))
 
         r2b1, r2b2, r2b3, r2b4, r2b5 = st.columns(5)
         with r2b1:
-            min_dividend = st.slider("Div Yield %", 0.0, 10.0, 0.0, step=0.1)
+            min_dividend = st.slider("Div Yield %", 0.0, 10.0, 0.0, step=0.1, key=fkey("min_dividend"))
         with r2b2:
-            roe_min, roe_max = st.slider("ROE %", DEFAULT_BOUNDS["roe"][0], DEFAULT_BOUNDS["roe"][1], DEFAULT_BOUNDS["roe"], step=0.1)
+            roe_min, roe_max = st.slider("ROE %", DEFAULT_BOUNDS["roe"][0], DEFAULT_BOUNDS["roe"][1], DEFAULT_BOUNDS["roe"], step=0.1, key=fkey("roe"))
         with r2b3:
-            roa_min, roa_max = st.slider("ROA %", DEFAULT_BOUNDS["roa"][0], DEFAULT_BOUNDS["roa"][1], DEFAULT_BOUNDS["roa"], step=0.1)
+            roa_min, roa_max = st.slider("ROA %", DEFAULT_BOUNDS["roa"][0], DEFAULT_BOUNDS["roa"][1], DEFAULT_BOUNDS["roa"], step=0.1, key=fkey("roa"))
         with r2b4:
-            profit_margin_min, profit_margin_max = st.slider("Profit Margin %", DEFAULT_BOUNDS["profit_margin"][0], DEFAULT_BOUNDS["profit_margin"][1], DEFAULT_BOUNDS["profit_margin"], step=0.1)
+            profit_margin_min, profit_margin_max = st.slider("Profit Margin %", DEFAULT_BOUNDS["profit_margin"][0], DEFAULT_BOUNDS["profit_margin"][1], DEFAULT_BOUNDS["profit_margin"], step=0.1, key=fkey("profit_margin"))
         with r2b5:
-            operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", DEFAULT_BOUNDS["operating_margin"][0], DEFAULT_BOUNDS["operating_margin"][1], DEFAULT_BOUNDS["operating_margin"], step=0.1)
+            operating_margin_min, operating_margin_max = st.slider("Oper. Margin %", DEFAULT_BOUNDS["operating_margin"][0], DEFAULT_BOUNDS["operating_margin"][1], DEFAULT_BOUNDS["operating_margin"], step=0.1, key=fkey("operating_margin"))
 
         # Debt/Assets, Equity Ratio and Interest Coverage are not in Yahoo's quote data
         # (no totalAssets or interest expense), so those filters stay at their neutral range.
@@ -662,46 +671,46 @@ elif current_page == "Screener":
 
         r2c1b, r2c2b, r2c3b, r2c4b, r2c5b = st.columns(5)
         with r2c1b:
-            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key="debt_equity_range_v5")
+            debt_to_equity_min, debt_to_equity_max = st.slider("Debt/Equity", DEFAULT_BOUNDS["debt_to_equity"][0], DEFAULT_BOUNDS["debt_to_equity"][1], DEFAULT_BOUNDS["debt_to_equity"], step=1.0, key=fkey("debt_equity_range_v5"))
         with r2c2b:
-            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key="current_ratio_range_v5")
+            current_ratio_min, current_ratio_max = st.slider("Current Ratio", DEFAULT_BOUNDS["current_ratio"][0], DEFAULT_BOUNDS["current_ratio"][1], DEFAULT_BOUNDS["current_ratio"], step=0.1, key=fkey("current_ratio_range_v5"))
         with r2c3b:
-            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key="quick_ratio_range_v5")
+            quick_ratio_min, quick_ratio_max = st.slider("Quick Ratio", DEFAULT_BOUNDS["quick_ratio"][0], DEFAULT_BOUNDS["quick_ratio"][1], DEFAULT_BOUNDS["quick_ratio"], step=0.1, key=fkey("quick_ratio_range_v5"))
         with r2c4b:
-            beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1)
+            beta_min, beta_max = st.slider("Beta", DEFAULT_BOUNDS["beta"][0], DEFAULT_BOUNDS["beta"][1], DEFAULT_BOUNDS["beta"], step=0.1, key=fkey("beta"))
         with r2c5b:
-            eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0)
+            eps_growth_min = st.number_input("EPS Growth %", value=-100.0, step=1.0, key=fkey("eps_growth"))
 
         r2d1, r2d2, r2d3, r2d4, r2d5 = st.columns(5)
         with r2d1:
-            revenue_growth_min = st.number_input("Rev Growth %", value=-100.0, step=1.0)
+            revenue_growth_min = st.number_input("Rev Growth %", value=-100.0, step=1.0, key=fkey("revenue_growth"))
 
     with ftab3:
         r3c1, r3c2, r3c3, r3c4, r3c5 = st.columns(5)
         with r3c1:
-            rsi_min, rsi_max = st.slider("RSI (14)", 0.0, 100.0, (0.0, 100.0), step=1.0)
+            rsi_min, rsi_max = st.slider("RSI (14)", 0.0, 100.0, (0.0, 100.0), step=1.0, key=fkey("rsi"))
         with r3c2:
-            bb_position = st.selectbox("Bollinger Bands", ["Any", "Above Upper", "Below Lower", "Between Bands"])
+            bb_position = st.selectbox("Bollinger Bands", ["Any", "Above Upper", "Below Lower", "Between Bands"], key=fkey("bb_position"))
         with r3c3:
-            above_sma20 = st.checkbox("Above SMA 20")
+            above_sma20 = st.checkbox("Above SMA 20", key=fkey("above_sma20"))
         with r3c4:
-            above_sma50 = st.checkbox("Above SMA 50")
+            above_sma50 = st.checkbox("Above SMA 50", key=fkey("above_sma50"))
         with r3c5:
-            above_sma200 = st.checkbox("Above SMA 200")
+            above_sma200 = st.checkbox("Above SMA 200", key=fkey("above_sma200"))
         r3b1, r3b2, r3b3, r3b4, r3b5 = st.columns(5)
         with r3b1:
-            macd_bullish = st.checkbox("MACD Bullish")
+            macd_bullish = st.checkbox("MACD Bullish", key=fkey("macd_bullish"))
 
     with ftab4:
         r4c1, r4c2, r4c3, r4c4, r4c5 = st.columns(5)
         with r4c1:
-            perf_period = st.selectbox("Perf Period", ["Any", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"])
+            perf_period = st.selectbox("Perf Period", ["Any", "1 Week", "1 Month", "3 Months", "6 Months", "1 Year"], key=fkey("perf_period"))
         perf_min, perf_max = -100.0, 300.0
         if perf_period != "Any":
             with r4c2:
-                perf_min = st.slider("Min Perf %", -100.0, 300.0, -100.0, step=1.0)
+                perf_min = st.slider("Min Perf %", -100.0, 300.0, -100.0, step=1.0, key=fkey("perf_min"))
             with r4c3:
-                perf_max = st.slider("Max Perf %", -100.0, 300.0, 300.0, step=1.0)
+                perf_max = st.slider("Max Perf %", -100.0, 300.0, 300.0, step=1.0, key=fkey("perf_max"))
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -711,6 +720,13 @@ elif current_page == "Screener":
         run_button = st.button("▼  Filter", use_container_width=True, type="primary")
         st.markdown('</div>', unsafe_allow_html=True)
     with act2:
+        reset_button = st.button(
+            "↺  Reset",
+            use_container_width=True,
+            on_click=_reset_filters,
+            help="Clear all filters back to their defaults and re-run the screen.",
+        )
+    with act3:
         st.caption(f"Watchlist: {len(st.session_state.watchlist)}")
 
     st.markdown(filter_panel_close(), unsafe_allow_html=True)
@@ -739,12 +755,12 @@ elif current_page == "Screener":
         macd_bullish=macd_bullish, bb_position=bb_position,
     )
 
-    should_run = run_button or (
+    should_run = run_button or reset_button or (
         not st.session_state.screener_has_run and not st.session_state.auto_run_attempted
     )
 
     if should_run:
-        if not run_button:
+        if not (run_button or reset_button):
             st.session_state.auto_run_attempted = True
 
         progress_container = st.container()
