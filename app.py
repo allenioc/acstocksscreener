@@ -714,18 +714,11 @@ elif current_page == "Screener":
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    act1, act2, act3 = st.columns([1, 1, 8])
+    act1, act2, act3 = st.columns([1, 1, 8], vertical_alignment="center")
     with act1:
-        st.markdown('<div class="fv-filter-btn">', unsafe_allow_html=True)
         run_button = st.button("▼  Filter", use_container_width=True, type="primary")
-        st.markdown('</div>', unsafe_allow_html=True)
     with act2:
-        reset_button = st.button(
-            "↺  Reset",
-            use_container_width=True,
-            on_click=_reset_filters,
-            help="Clear all filters back to their defaults and re-run the screen.",
-        )
+        reset_button = st.button("↺  Reset", use_container_width=True, on_click=_reset_filters)
     with act3:
         st.caption(f"Watchlist: {len(st.session_state.watchlist)}")
 
