@@ -18,6 +18,9 @@ THEME = {
     "text_muted": "#8b95a7",
     "accent_blue": "#4aa3ff",
     "accent_blue_hover": "#79bdff",
+    "nav_active": "#1E88E5",
+    "nav_active_hover": "#2196F3",
+    "nav_active_border": "#64B5F6",
     "filter_green": "#22c55e",
     "filter_green_hover": "#16a34a",
     "positive": "#22c55e",
@@ -59,7 +62,7 @@ def get_global_css() -> str:
     }}
 
     .main .block-container {{
-        padding: 0.4rem 1rem 0.75rem 1rem !important;
+        padding: 1.5rem 1rem 0.75rem 1rem !important;
         max-width: 100% !important;
     }}
 
@@ -82,8 +85,12 @@ def get_global_css() -> str:
         display: none !important;
     }}
 
-    section.main > div.block-container {{
-        padding-top: 0.25rem !important;
+    .stApp > header {{
+        display: none !important;
+    }}
+
+    .block-container {{
+        padding-top: 1.5rem !important;
     }}
 
     /* Collapse sidebar — Finviz uses full-width filters */
@@ -471,56 +478,40 @@ def get_global_css() -> str:
         margin: 4px 0 !important;
     }}
 
-    /* ── Functional top navigation ── */
-    .fv-nav-wrapper {{
-        background: {t['bg_nav']};
-        border-bottom: 2px solid {t['border_default']};
-        margin: 0 -1rem 8px -1rem;
-        padding: 8px 12px;
-    }}
-
-    .fv-nav-row {{
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }}
-
-    .fv-nav-btn-wrap {{
-        display: flex;
-        gap: 0;
-        align-items: stretch;
-    }}
-
-    .fv-nav-btn-wrap button {{
-        border-radius: 0 !important;
-        border: none !important;
-        border-bottom: 2px solid transparent !important;
-        background: transparent !important;
+    /* ── Functional top navigation (scoped via st.container(key="top_nav")) ── */
+    .st-key-top_nav .stButton > button {{
+        background: {t['bg_surface_muted']} !important;
         color: {t['text_secondary']} !important;
-        font-size: 12px !important;
+        border: 1px solid {t['border_default']} !important;
+        border-radius: 4px !important;
+        font-size: 13px !important;
         font-weight: 600 !important;
-        padding: 6px 14px !important;
-        min-height: 32px !important;
+        min-height: 34px !important;
         box-shadow: none !important;
     }}
 
-    .fv-nav-btn-wrap button:hover {{
-        background: rgba(255,255,255,0.04) !important;
-        color: #fff !important;
+    .st-key-top_nav .stButton > button:hover {{
+        border-color: {t['nav_active']} !important;
+        color: {t['text_primary']} !important;
     }}
 
-    .fv-nav-btn-wrap button[kind="primary"],
-    .fv-nav-btn-wrap button[data-testid="stBaseButton-primary"] {{
+    .st-key-top_nav .stButton > button[data-testid="stBaseButton-primary"] {{
+        background: {t['nav_active']} !important;
+        border: 1px solid {t['nav_active_border']} !important;
         color: #fff !important;
-        border-bottom-color: {t['accent_blue']} !important;
-        background: rgba(74,163,255,0.08) !important;
+        font-weight: 700 !important;
+        box-shadow: 0 0 0 1px rgba(30,136,229,0.35), 0 2px 8px rgba(30,136,229,0.25) !important;
+    }}
+
+    .st-key-top_nav .stButton > button[data-testid="stBaseButton-primary"]:hover {{
+        background: {t['nav_active_hover']} !important;
+        color: #fff !important;
     }}
 
     .fv-nav-brand-inline {{
         font-size: 15px;
         font-weight: 700;
         color: {t['accent_blue']};
-        padding-top: 6px;
         letter-spacing: -0.02em;
     }}
 
@@ -595,39 +586,31 @@ def get_global_css() -> str:
 NAV_PAGES = ["Screener", "Charts"]
 
 
+def _set_active_page(page: str) -> None:
+    st.session_state.active_page = page
+
+
 def render_top_nav() -> str:
     """Render working Streamlit navigation and return the active page."""
-    if "nav_page" not in st.session_state or st.session_state.nav_page not in NAV_PAGES:
-        st.session_state.nav_page = "Screener"
+    if st.session_state.get("active_page") not in NAV_PAGES:
+        st.session_state.active_page = "Screener"
 
-    st.markdown('<div class="fv-nav-wrapper">', unsafe_allow_html=True)
-    brand_col, nav_col, _spacer = st.columns([1.3, 2.2, 6.5])
-    with brand_col:
-        st.markdown('<div class="fv-nav-brand-inline">StockTerminal</div>', unsafe_allow_html=True)
-    with nav_col:
-        st.markdown('<div class="fv-nav-btn-wrap">', unsafe_allow_html=True)
-        btn1, btn2 = st.columns(2)
-        with btn1:
-            if st.button(
-                "Screener",
-                type="primary" if st.session_state.nav_page == "Screener" else "secondary",
-                use_container_width=True,
-                key="nav_btn_screener",
-            ):
-                st.session_state.nav_page = "Screener"
-                st.rerun()
-        with btn2:
-            if st.button(
-                "Charts",
-                type="primary" if st.session_state.nav_page == "Charts" else "secondary",
-                use_container_width=True,
-                key="nav_btn_charts",
-            ):
-                st.session_state.nav_page = "Charts"
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    return st.session_state.nav_page
+    with st.container(key="top_nav"):
+        brand_col, nav_col, _spacer = st.columns([1.3, 2.2, 6.5], vertical_alignment="center")
+        with brand_col:
+            st.markdown('<div class="fv-nav-brand-inline">StockTerminal</div>', unsafe_allow_html=True)
+        with nav_col:
+            for col, page in zip(st.columns(len(NAV_PAGES)), NAV_PAGES):
+                with col:
+                    st.button(
+                        page,
+                        type="primary" if st.session_state.active_page == page else "secondary",
+                        use_container_width=True,
+                        key=f"nav_btn_{page.lower()}",
+                        on_click=_set_active_page,
+                        args=(page,),
+                    )
+    return st.session_state.active_page
 
 
 def finviz_nav(active: str = "screener") -> str:
