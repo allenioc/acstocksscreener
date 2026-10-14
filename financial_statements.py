@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
-from theme import THEME
+from analytics.quality import build_earnings_divergence
+from theme import THEME, apply_dark_plotly_layout
 
 INCOME_LINES = [
     ("Total Revenue", ["Total Revenue", "TotalRevenue", "Revenue"]),
@@ -289,6 +291,46 @@ def _render_table(title: str, table: Optional[pd.DataFrame]) -> None:
     st.dataframe(table, use_container_width=True, hide_index=True, height=min(56 + len(table) * 35, 320))
 
 
+DIVERGENCE_SERIES = [
+    ("Net Income", THEME["accent_blue"]),
+    ("Operating Cash Flow", THEME["positive"]),
+    ("Free Cash Flow", "#f5a524"),
+]
+
+
+def render_earnings_divergence(ticker: str) -> None:
+    """Annual net income vs operating cash flow vs free cash flow, with a divergence callout."""
+    annual = fetch_financial_statements(ticker, "annual")
+    result = build_earnings_divergence(annual.get("income"), annual.get("cashflow"))
+    table = result["table"]
+
+    st.markdown("**Earnings vs Cash Flow (annual)**")
+    if table.empty:
+        st.info("Data unavailable — annual net income and operating cash flow not reported.")
+        return
+
+    labels = [str(p.year) for p in table["period"]]
+    fig = go.Figure()
+    for name, color in DIVERGENCE_SERIES:
+        values = [v / 1e9 if pd.notna(v) else None for v in table[name]]
+        fig.add_trace(go.Bar(
+            x=labels,
+            y=values,
+            name=name,
+            marker_color=color,
+            hovertemplate=f"{name}: $%{{y:,.2f}}B<extra>%{{x}}</extra>",
+        ))
+    apply_dark_plotly_layout(fig, title=f"{ticker} — Net Income vs Cash Generation", height=340)
+    fig.update_layout(barmode="group", yaxis_title="USD (billions)")
+    st.plotly_chart(fig, use_container_width=True)
+
+    if result["divergence"]:
+        st.warning(
+            "⚠️ Cash Flow Divergence: Reported earnings are significantly higher than cash generated "
+            "from core operations. Investigate one-time non-operating gains or working capital drag."
+        )
+
+
 def render_financial_statements(ticker: str) -> None:
     """Render financial statements section inside stock detail."""
     st.markdown("---")
@@ -320,6 +362,8 @@ def render_financial_statements(ticker: str) -> None:
         st.markdown(f'<span style="color:{THEME["text_muted"]};">**Missing data warnings**</span>', unsafe_allow_html=True)
         for w in warnings:
             st.write(f"• {w}")
+
+    render_earnings_divergence(ticker)
 
     income_table = build_statement_table(income, INCOME_LINES, frequency=frequency)
     balance_table = build_statement_table(balance, BALANCE_LINES, frequency=frequency)

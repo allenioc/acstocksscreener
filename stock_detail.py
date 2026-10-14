@@ -9,9 +9,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from analytics.quality import compute_piotroski_score, compute_sloan_ratio, piotroski_interpretation
 from filter_logic import build_filter_config, any_filter_active
 from theme import THEME, apply_dark_plotly_layout
-from financial_statements import render_financial_statements
+from financial_statements import fetch_financial_statements, render_financial_statements
 
 KEY_METRICS = [
     ("price", "Price"),
@@ -396,6 +397,88 @@ def _fmt_vol(val: Optional[float]) -> str:
     return f"{val:,.0f}" if val is not None else "Data unavailable"
 
 
+FINANCIAL_SECTORS = {"Financial Services", "Financials", "Financial"}
+
+
+def _badge(text: str, level: str) -> str:
+    color = {"red": THEME["negative"], "green": THEME["positive"]}.get(level, THEME["text_muted"])
+    return (
+        f'<span style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;'
+        f'font-weight:600;color:{color};border:1px solid {color};">{text}</span>'
+    )
+
+
+def render_quality_card(ticker: str, sector: Optional[str]) -> None:
+    """Sloan accrual ratio and Piotroski F-score from the latest annual statements."""
+    st.markdown("---")
+    st.markdown('<div class="section-header">Earnings Quality & Balance Sheet Health</div>', unsafe_allow_html=True)
+
+    with st.spinner("Loading annual statements..."):
+        annual = fetch_financial_statements(ticker, "annual")
+    income, balance, cashflow = annual.get("income"), annual.get("balance"), annual.get("cashflow")
+    sloan = compute_sloan_ratio(income, balance, cashflow)
+    fscore = compute_piotroski_score(income, balance, cashflow)
+
+    with st.container(border=True):
+        left, right = st.columns(2)
+        with left:
+            st.caption("Sloan Accrual Ratio — (Net Income − Operating Cash Flow) / Total Assets")
+            badge = sloan["badge"]
+            if sloan["ratio"] is None:
+                st.metric("Sloan Ratio", "Data unavailable")
+                st.markdown(_badge(badge["label"], "unavailable"), unsafe_allow_html=True)
+                st.caption(badge["detail"])
+            else:
+                st.metric("Sloan Ratio", f"{sloan['ratio'] * 100:+.2f}%")
+                prefix = "⚠️ Red Flag" if badge["level"] == "red" else "Green Flag"
+                st.markdown(_badge(f"{prefix}: {badge['label']}", badge["level"]), unsafe_allow_html=True)
+                st.caption(
+                    f"{badge['detail']} FY {sloan['period'].year}: net income {_fmt_money(sloan['net_income'])}, "
+                    f"operating cash flow {_fmt_money(sloan['operating_cash_flow'])}, "
+                    f"total assets {_fmt_money(sloan['total_assets'])}."
+                )
+
+        with right:
+            st.caption("Piotroski F-Score — 9 binary profitability, leverage and efficiency tests")
+            if fscore["score"] is None:
+                st.metric("F-Score", "Data unavailable")
+                for note in fscore["notes"]:
+                    st.caption(note)
+            else:
+                st.metric("F-Score", f"{fscore['score']}/9")
+                st.caption(
+                    f"{piotroski_interpretation(fscore['score'], fscore['evaluated'])} · "
+                    f"{fscore['fiscal_year']} vs {fscore['prior_year']}"
+                )
+                for note in fscore["notes"]:
+                    st.caption(note)
+
+        if fscore["signals"]:
+            rows = []
+            for sig in fscore["signals"]:
+                if sig["passed"] is True:
+                    icon, color = "✅", THEME["positive"]
+                elif sig["passed"] is False:
+                    icon, color = "❌", THEME["negative"]
+                else:
+                    icon, color = "—", THEME["text_muted"]
+                rows.append(
+                    f'<div style="display:flex;gap:10px;padding:3px 0;font-size:13px;">'
+                    f'<span style="width:18px;color:{color};">{icon}</span>'
+                    f'<span style="color:{THEME["text_secondary"]};min-width:260px;">{sig["label"]}</span>'
+                    f'<span style="color:{THEME["text_muted"]};">{sig["detail"]}</span></div>'
+                )
+            st.markdown("".join(rows), unsafe_allow_html=True)
+
+        if sector in FINANCIAL_SECTORS:
+            st.caption(
+                "Banks and insurers fund operations through deposits and float, so operating cash flow, "
+                "gross margin and current ratio are not comparable to industrial companies. Interpret these "
+                "scores with caution."
+            )
+        st.caption("Based on the two most recent annual reports from Yahoo Finance. Educational analysis only.")
+
+
 def render_stock_detail_panel(
     selected_ticker: str,
     df: pd.DataFrame,
@@ -511,6 +594,7 @@ def render_stock_detail_panel(
             for m in missing_fields:
                 st.write(f"• {m}: Data unavailable")
 
+    render_quality_card(metrics["ticker"], metrics.get("sector"))
     render_financial_statements(metrics["ticker"])
 
     st.caption("Rule-based analysis for educational purposes only. Not financial advice. No buy/sell recommendation.")
